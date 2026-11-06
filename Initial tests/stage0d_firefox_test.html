@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Stage 0d tests</title>
+<style>
+  :root { --bg:#2b2d30; --panel:#35383c; --text:#e8e8e8; --muted:#9aa0a6; --accent:#6fae7c; --warn:#d9822b; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:12px; background:var(--bg); color:var(--text); font-family:system-ui,sans-serif; font-size:16px; }
+  h1 { font-size:1.15rem; margin:0 0 4px; }
+  h2 { font-size:1rem; margin:0 0 8px; color:var(--accent); }
+  .panel { background:var(--panel); border-radius:8px; padding:12px; margin-bottom:12px; }
+  .muted { color:var(--muted); font-size:0.85rem; }
+  button { min-height:44px; padding:8px 14px; margin:3px 3px 3px 0; border:0; border-radius:6px; background:#4a4e53; color:var(--text); font-size:1rem; }
+  button.primary { background:var(--accent); color:#10200f; font-weight:600; }
+  input[type=number] { width:72px; min-height:40px; padding:6px; font-size:1rem; background:#222; color:var(--text); border:1px solid #555; border-radius:6px; }
+  label { display:block; margin:6px 0; }
+  #remaining { font-size:2rem; font-weight:700; margin:6px 0; }
+  #log { background:#1e1f21; border-radius:6px; padding:8px; height:280px; overflow:auto; font:12px/1.4 monospace; white-space:pre-wrap; }
+</style>
+</head>
+<body>
+<h1>Stage 0d: Firefox on the hosted page</h1>
+<div class="muted" id="env"></div>
+
+<div class="panel">
+  <h2>1. Timer, alert sound and close/reopen</h2>
+  <div class="muted">Sound: soft lead-in, then three-note chime. Run it with the screen locked and with another app in front.</div>
+  <label><input type="radio" name="mode" value="A" checked> Method A: play when the page's timer fires</label>
+  <label><input type="radio" name="mode" value="B"> Method B: pre-schedule on the audio clock</label>
+  <label>Repeat chime every <input type="number" id="rep" value="30" min="0"> s (0 = no repeat)</label>
+  <div id="remaining">--</div>
+  <div>
+    <button class="primary" onclick="startTimer(20)">20 s</button>
+    <button class="primary" onclick="startTimer(60)">60 s</button>
+    <button class="primary" onclick="startTimer(180)">3 min</button>
+    <button onclick="stopTimer(true)">Done (stop alerts)</button>
+  </div>
+  <div id="rearmBox" style="display:none;">
+    <div class="muted" style="color:var(--warn);">Timer restored after reopening. Sound needs a tap to arm.</div>
+    <button class="primary" onclick="rearm()">Arm sound</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>2. Screen wake lock</h2>
+  <button onclick="reqWake()">Keep screen on</button>
+  <button onclick="relWake()">Release</button>
+  <div class="muted" id="wakeState">not requested</div>
+</div>
+
+<div class="panel">
+  <h2>3. Storage</h2>
+  <button onclick="checkStorage()">Check / request persistent storage</button>
+</div>
+
+<div class="panel">
+  <h2>Log (survives closing the browser)</h2>
+  <div id="log"></div>
+  <button onclick="copyLog()">Copy log</button>
+  <button onclick="clearLog()">Clear log</button>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const STATE_KEY = 'st0d_state', LOG_KEY = 'st0d_log';
+const MAX_REPEATS = 4;
+
+/* ---------- log ---------- */
+let lines = [];
+try { lines = JSON.parse(localStorage.getItem(LOG_KEY)) || []; } catch (e) {}
+function log(m) {
+  lines.push(new Date().toLocaleTimeString('en-GB') + '  ' + m);
+  if (lines.length > 300) lines.shift();
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(lines)); } catch (e) {}
+  renderLog();
+}
+function renderLog() { const el = $('log'); el.textContent = lines.join('\n'); el.scrollTop = el.scrollHeight; }
+function clearLog() { lines = []; localStorage.removeItem(LOG_KEY); renderLog(); }
+function copyLog() {
+  const t = lines.join('\n');
+  if (navigator.clipboard) navigator.clipboard.writeText(t).then(() => log('log copied'), e => log('copy failed: ' + e.name));
+  else log('clipboard API missing');
+}
+
+/* ---------- audio ---------- */
+let ctx = null, runGain = null, timeouts = [];
+function getCtx() { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); return ctx; }
+function tone(c, out, f, t, dur, vol) {
+  const o = c.createOscillator(), g = c.createGain();
+  o.type = 'sine'; o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(vol, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(out); o.start(t); o.stop(t + dur + 0.05);
+}
+function chimeAt(c, out, t) {
+  tone(c, out, 330, t, 0.55, 0.07);                       // soft lead-in
+  [659.25, 783.99, 987.77].forEach((f, i) => tone(c, out, f, t + 0.6 + i * 0.28, 0.5, 0.25));
+}
+function newRunGain() {
+  const c = getCtx();
+  if (runGain) { try { runGain.gain.value = 0; runGain.disconnect(); } catch (e) {} }
+  runGain = c.createGain(); runGain.connect(c.destination);
+  return c;
+}
+
+/* ---------- timer ---------- */
+function load() { try { return JSON.parse(localStorage.getItem(STATE_KEY)); } catch (e) { return null; } }
+function save(s) { if (s) localStorage.setItem(STATE_KEY, JSON.stringify(s)); else localStorage.removeItem(STATE_KEY); }
+let st = null, noticed = false;
+
+function clearTimeouts() { timeouts.forEach(clearTimeout); timeouts = []; }
+
+function armSound(remainingSec) {
+  const c = newRunGain();
+  c.resume();
+  if (st.mode === 'B') {
+    const t0 = c.currentTime + remainingSec;
+    const n = st.rep ? MAX_REPEATS : 0;
+    for (let k = 0; k <= n; k++) chimeAt(c, runGain, t0 + k * st.rep);
+    log(`Method B: chimes pre-scheduled on audio clock (ctx ${c.state})`);
+  } else {
+    let count = 0;
+    const fire = () => {
+      const late = ((Date.now() - st.endAt) / 1000).toFixed(1);
+      const cc = getCtx(); cc.resume();
+      chimeAt(cc, runGain, cc.currentTime + 0.05);
+      log(count === 0 ? `Method A: first alert fired, ${late} s after end (ctx ${cc.state})` : `Method A: repeat ${count} fired, ${late} s after end`);
+      count++;
+      if (st.rep && count <= MAX_REPEATS) timeouts.push(setTimeout(fire, st.rep * 1000));
+    };
+    timeouts.push(setTimeout(fire, Math.max(0, remainingSec * 1000)));
+    log('Method A: timeout armed');
+  }
+}
+
+function startTimer(sec) {
+  stopTimer(false);
+  st = { endAt: Date.now() + sec * 1000, mode: document.querySelector('input[name=mode]:checked').value, rep: Math.max(0, parseInt($('rep').value) || 0) };
+  noticed = false;
+  save(st);
+  $('rearmBox').style.display = 'none';
+  log(`Started ${sec} s timer, method ${st.mode}, repeat ${st.rep || 'off'}`);
+  armSound(sec);
+}
+function stopTimer(userDone) {
+  clearTimeouts();
+  if (runGain) { try { runGain.gain.value = 0; runGain.disconnect(); } catch (e) {} runGain = null; }
+  if (userDone && st) log('Done pressed, alerts stopped');
+  st = null; save(null);
+  $('rearmBox').style.display = 'none';
+  $('remaining').textContent = '--';
+}
+function rearm() {
+  if (!st) return;
+  const rem = (st.endAt - Date.now()) / 1000;
+  armSound(Math.max(0, rem));
+  $('rearmBox').style.display = 'none';
+  log(`Sound armed by tap after reopen, ${Math.max(0, rem).toFixed(0)} s left`);
+}
+
+/* ---------- ticker: display, end noticed, JS-pause gaps ---------- */
+let lastTick = Date.now();
+setInterval(() => {
+  const now = Date.now();
+  if (now - lastTick > 3000) log(`ticker gap ${((now - lastTick) / 1000).toFixed(1)} s (page was throttled or paused)`);
+  lastTick = now;
+  if (!st) return;
+  const rem = (st.endAt - now) / 1000;
+  if (rem > 0) {
+    $('remaining').textContent = Math.floor(rem / 60) + ':' + String(Math.floor(rem % 60)).padStart(2, '0');
+  } else {
+    $('remaining').textContent = 'ended';
+    if (!noticed) { noticed = true; log(`page noticed the end ${(-rem).toFixed(1)} s after end time`); }
+  }
+}, 500);
+
+document.addEventListener('visibilitychange', () => {
+  log('page ' + document.visibilityState);
+  if (document.visibilityState === 'visible' && wakeWanted) reqWake(true);
+});
+
+/* ---------- wake lock ---------- */
+let wake = null, wakeWanted = false;
+async function reqWake(quiet) {
+  wakeWanted = true;
+  if (!('wakeLock' in navigator)) { $('wakeState').textContent = 'API missing'; log('wake lock API missing'); return; }
+  try {
+    wake = await navigator.wakeLock.request('screen');
+    $('wakeState').textContent = 'screen kept on';
+    if (!quiet) log('wake lock granted');
+    wake.addEventListener('release', () => { $('wakeState').textContent = 'released'; log('wake lock released'); });
+  } catch (e) { $('wakeState').textContent = 'failed'; log('wake lock failed: ' + e.name + ' ' + e.message); }
+}
+async function relWake() {
+  wakeWanted = false;
+  if (wake) { try { await wake.release(); } catch (e) {} wake = null; }
+}
+
+/* ---------- storage ---------- */
+async function checkStorage() {
+  try {
+    if (!navigator.storage) { log('storage API missing'); return; }
+    log('persisted before: ' + await navigator.storage.persisted());
+    log('persist() returned: ' + await navigator.storage.persist());
+    const e = await navigator.storage.estimate();
+    log(`usage ${e.usage} of quota ${e.quota} bytes`);
+  } catch (e) { log('storage check failed: ' + e.name + ' ' + e.message); }
+}
+
+/* ---------- init ---------- */
+$('env').textContent = location.protocol + ' | secure context: ' + window.isSecureContext;
+renderLog();
+log('--- page loaded ---');
+st = load();
+if (st) {
+  const rem = (st.endAt - Date.now()) / 1000;
+  if (rem <= 0) {
+    log(`Reopened: timer ended ${(-rem).toFixed(0)} s ago while closed; no sound played (by design)`);
+    st = null; save(null);
+  } else {
+    log(`Reopened: timer restored, ${rem.toFixed(0)} s left, method ${st.mode}`);
+    $('rearmBox').style.display = 'block';
+  }
+}
+</script>
+</body>
+</html>
