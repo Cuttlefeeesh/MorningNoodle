@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stage 0c tests</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; padding: 12px; font: 16px/1.4 system-ui, sans-serif; background: #121212; color: #fff; }
+  h1 { font-size: 1.2rem; margin: 0 0 8px; }
+  h2 { font-size: 1rem; color: #ffcc00; margin: 0 0 6px; }
+  section { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  button, select { min-height: 48px; padding: 8px 14px; margin: 4px 4px 4px 0; background: #333; color: #fff; border: 0; border-radius: 8px; font-size: 1rem; }
+  button:active { background: #555; }
+  p { margin: 4px 0 8px; font-size: 0.9rem; color: #bbb; }
+  #log { font: 0.8rem/1.5 monospace; white-space: pre-wrap; background: #000; padding: 8px; border-radius: 6px; min-height: 80px; }
+  #list, #list * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+  .item { display: flex; align-items: stretch; margin-bottom: 6px; background: #2a2a2a; border: 1px solid #444; border-radius: 8px; overflow: hidden; }
+  .item.drag { border-color: #ffcc00; background: #3a3520; }
+  .handle { width: 64px; min-height: 56px; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; color: #aaa; background: #333; touch-action: none; }
+  .name { flex: 1; display: flex; align-items: center; padding: 0 10px; }
+  .item button { min-height: 56px; width: 48px; margin: 0; border-radius: 0; background: #2f2f2f; padding: 0; }
+</style>
+</head>
+<body>
+<h1>Stage 0c: alert sound and reordering</h1>
+
+<section><h2>1. Alert sound (Bluetooth lead-in)</h2>
+  <p>Same timer test as before. Compare the three sounds on the first beep after a minute of silence, with your headphones connected.</p>
+  <select id="variant">
+    <option value="single">Single beep (as before)</option>
+    <option value="chime">Three-note chime</option>
+    <option value="lead">Soft lead-in, then chime</option>
+  </select><br>
+  <button onclick="play()">Play now</button>
+  <button onclick="startTimer(10)">Timer 10 s</button>
+  <button onclick="startTimer(60)">Timer 60 s</button>
+  <button onclick="doneTimer()">Done</button>
+  <div id="timerStatus"></div>
+</section>
+
+<section><h2>2. Reorder</h2>
+  <p>Drag by the wide grey strip on the left, or use the arrow buttons. Tell me which works.</p>
+  <div id="list"></div>
+</section>
+
+<section><h2>Log</h2>
+  <div id="log"></div>
+  <button onclick="navigator.clipboard ? navigator.clipboard.writeText(document.getElementById('log').textContent).then(()=>log('log copied'),()=>log('copy failed')) : log('no clipboard')">Copy log</button>
+  <button onclick="localStorage.removeItem('s0c_log'); document.getElementById('log').textContent=''">Clear log</button>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+function log(m) { $('log').textContent += new Date().toLocaleTimeString() + '  ' + m + '\n'; try { localStorage.setItem('s0c_log', $('log').textContent); } catch (e) {} }
+$('log').textContent = localStorage.getItem('s0c_log') || '';
+log('page opened');
+
+/* sound */
+let ctx = null;
+function audio() { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === 'suspended') ctx.resume(); return ctx; }
+function tone(freq, start, dur, vol) {
+  const c = audio(), o = c.createOscillator(), g = c.createGain();
+  o.frequency.value = freq;
+  g.gain.setValueAtTime(0.0001, start); g.gain.exponentialRampToValueAtTime(vol, start + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+  o.connect(g); g.connect(c.destination); o.start(start); o.stop(start + dur + 0.05);
+}
+function play() {
+  const c = audio(), t0 = c.currentTime + 0.05, v = $('variant').value;
+  if (v === 'single') tone(880, t0, 0.6, 0.3);
+  else {
+    const at = v === 'lead' ? t0 + 1.2 : t0;
+    if (v === 'lead') tone(300, t0, 1.2, 0.02);
+    [523, 659, 784].forEach((f, i) => tone(f, at + i * 0.28, 0.4, 0.3));
+  }
+}
+let timers = [];
+function doneTimer() { timers.forEach(clearTimeout); timers = []; $('timerStatus').textContent = 'Done'; log('marked done'); }
+function startTimer(sec) {
+  doneTimer(); audio();
+  const due = Date.now() + sec * 1000;
+  $('timerStatus').textContent = 'Due ' + new Date(due).toLocaleTimeString();
+  log(`timer ${sec}s, sound: ${$('variant').value}`);
+  timers.push(setTimeout(() => {
+    play(); log('first alert');
+    timers.push(setTimeout(() => { play(); log('repeat alert'); }, 30000));
+  }, sec * 1000));
+}
+
+/* reorder */
+const list = $('list');
+['Brush teeth', 'Make bed', 'Pack lunch', 'Flashcards', 'Shoes on', 'Keys and wallet'].forEach(n => {
+  const d = document.createElement('div'); d.className = 'item';
+  d.innerHTML = `<div class="handle">&#9776;</div><div class="name">${n}</div><button>&#9650;</button><button>&#9660;</button>`;
+  const [h, , up, down] = d.children;
+  const report = () => log('order: ' + [...list.children].map(c => c.querySelector('.name').textContent).join(', '));
+  up.onclick = () => { if (d.previousElementSibling) { list.insertBefore(d, d.previousElementSibling); report(); } };
+  down.onclick = () => { if (d.nextElementSibling) { list.insertBefore(d.nextElementSibling, d); report(); } };
+  h.addEventListener('pointerdown', e => { h.setPointerCapture(e.pointerId); d.classList.add('drag'); log('drag started'); });
+  h.addEventListener('pointermove', e => {
+    if (!d.classList.contains('drag')) return;
+    const over = [...list.children].find(c => c !== d && e.clientY > c.getBoundingClientRect().top && e.clientY < c.getBoundingClientRect().bottom);
+    if (over) list.insertBefore(d, e.clientY > over.getBoundingClientRect().top + over.offsetHeight / 2 ? over.nextSibling : over);
+  });
+  const end = () => { if (d.classList.contains('drag')) { d.classList.remove('drag'); report(); } };
+  h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+  d.addEventListener('contextmenu', e => e.preventDefault());
+  list.appendChild(d);
+});
+</script>
+</body>
+</html>
