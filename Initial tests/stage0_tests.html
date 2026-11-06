@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stage 0 phone tests</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 12px; font: 16px/1.4 system-ui, sans-serif; background: #121212; color: #fff; }
+  h1 { font-size: 1.2rem; margin: 0 0 8px; }
+  h2 { font-size: 1rem; color: #ffcc00; margin: 0 0 6px; }
+  section { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  button { min-height: 48px; padding: 8px 14px; margin: 4px 4px 4px 0; background: #333; color: #fff; border: 0; border-radius: 8px; font-size: 1rem; }
+  button:active { background: #555; }
+  p { margin: 4px 0 8px; font-size: 0.9rem; color: #bbb; }
+  #log { font: 0.8rem/1.5 monospace; white-space: pre-wrap; background: #000; padding: 8px; border-radius: 6px; min-height: 80px; }
+  textarea { width: 100%; height: 70px; background: #1e1e1e; color: #fff; border: 1px solid #444; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 10px; margin-bottom: 6px; background: #2a2a2a; border: 1px solid #444; border-radius: 8px; }
+  .item.drag { opacity: .6; border-color: #ffcc00; }
+  .handle { font-size: 1.4rem; padding: 4px 10px; touch-action: none; user-select: none; color: #aaa; }
+  label { display: block; margin: 6px 0; }
+</style>
+</head>
+<body>
+<h1>Stage 0: phone capability tests</h1>
+<p>Run each test, then send me the log at the bottom (use the Copy log button).</p>
+
+<section><h2>1. Screen and context</h2><div id="env"></div></section>
+
+<section><h2>2. Sound and repeat</h2>
+  <p>Beep after 10 s, then again 30 s later unless you tap Done.</p>
+  <button onclick="beep()">Beep now</button>
+  <button onclick="startTimer(10)">Timer 10 s</button>
+  <button onclick="doneTimer()">Done</button>
+  <button onclick="startTimer(60)">Timer 60 s (lock the screen)</button>
+  <label><input type="checkbox" id="keepAlive" onchange="toggleKeepAlive(this.checked)"> Keep alive with silent audio</label>
+  <div id="timerStatus"></div>
+</section>
+
+<section><h2>3. Screen wake lock</h2>
+  <button onclick="wake()">Keep screen on</button> <span id="wakeStatus"></span>
+</section>
+
+<section><h2>4. Notifications (watch test)</h2>
+  <p>Allow, then send. The delayed one gives you time to lock the phone and see whether the watch buzzes.</p>
+  <button onclick="askPerm()">Allow notifications</button>
+  <button onclick="notify('Now', 'Immediate test')">Send now</button>
+  <button onclick="setTimeout(()=>notify('Delayed', 'Sent 20 s after tap'), 20000); log('notification queued for 20 s')">Send in 20 s</button>
+</section>
+
+<section><h2>5. Export</h2>
+  <button onclick="dl()">Download file</button>
+  <button onclick="share()">Share sheet</button>
+  <button onclick="copyTry()">Copy</button>
+  <textarea id="exp" readonly>TASKLIST_EXPORT_V1:[{"name":"test"}]</textarea>
+</section>
+
+<section><h2>6. Drag to reorder</h2>
+  <p>Hold and drag the handle.</p>
+  <div id="list"></div>
+</section>
+
+<section><h2>Log</h2>
+  <div id="log"></div>
+  <button onclick="navigator.clipboard ? navigator.clipboard.writeText(document.getElementById('log').textContent).then(()=>log('log copied'), ()=>log('copy failed: select log by hand')) : log('no clipboard')">Copy log</button>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+const t = () => new Date().toLocaleTimeString();
+function log(m) { $('log').textContent += t() + '  ' + m + '\n'; }
+
+$('env').textContent = `width ${innerWidth}px, pixel ratio ${devicePixelRatio}, protocol ${location.protocol}, secure context ${isSecureContext}, wake lock ${'wakeLock' in navigator}, share ${!!navigator.share}, notifications ${'Notification' in window}, service worker ${'serviceWorker' in navigator}`;
+log($('env').textContent);
+
+/* sound */
+let ctx = null;
+function audio() { if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)(); if (ctx.state === 'suspended') ctx.resume(); return ctx; }
+function beep() {
+  const c = audio(), o = c.createOscillator(), g = c.createGain();
+  o.frequency.value = 880; g.gain.setValueAtTime(0.3, c.currentTime); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + 0.6);
+  o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + 0.6);
+}
+let keepNodes = null;
+function toggleKeepAlive(on) {
+  if (on) { const c = audio(), o = c.createOscillator(), g = c.createGain(); g.gain.value = 0.0001; o.connect(g); g.connect(c.destination); o.start(); keepNodes = o; log('silent audio on'); }
+  else if (keepNodes) { keepNodes.stop(); keepNodes = null; log('silent audio off'); }
+}
+let timers = [];
+function doneTimer() { timers.forEach(clearTimeout); timers = []; $('timerStatus').textContent = 'Done'; log('marked done'); }
+function startTimer(sec) {
+  doneTimer(); audio();
+  const due = Date.now() + sec * 1000;
+  $('timerStatus').textContent = 'Due ' + new Date(due).toLocaleTimeString();
+  log(`timer ${sec}s started, due ${new Date(due).toLocaleTimeString()}`);
+  timers.push(setTimeout(() => {
+    beep(); log(`first beep fired ${((Date.now() - due) / 1000).toFixed(1)} s after due`);
+    const due2 = Date.now() + 30000;
+    timers.push(setTimeout(() => { beep(); log(`repeat beep fired ${((Date.now() - due2) / 1000).toFixed(1)} s after due`); }, 30000));
+  }, sec * 1000));
+}
+
+/* wake lock */
+let lock = null;
+async function wake() {
+  try { lock = await navigator.wakeLock.request('screen'); $('wakeStatus').textContent = 'on'; log('wake lock on'); lock.addEventListener('release', () => { $('wakeStatus').textContent = 'released'; log('wake lock released'); }); }
+  catch (e) { $('wakeStatus').textContent = 'failed'; log('wake lock failed: ' + e.message); }
+}
+document.addEventListener('visibilitychange', () => log('page ' + document.visibilityState));
+
+/* notifications */
+let reg = null;
+async function askPerm() {
+  try {
+    if ('serviceWorker' in navigator) { reg = await navigator.serviceWorker.register('sw.js'); log('service worker registered'); }
+  } catch (e) { log('service worker failed: ' + e.message); }
+  try { log('permission: ' + await Notification.requestPermission()); } catch (e) { log('permission error: ' + e.message); }
+}
+async function notify(title, body) {
+  try {
+    if (reg) { await (await navigator.serviceWorker.ready).showNotification(title, { body, vibrate: [200, 100, 200], requireInteraction: true }); log('sent via service worker'); }
+    else { new Notification(title, { body }); log('sent via page'); }
+  } catch (e) { log('notify failed: ' + e.message); }
+}
+
+/* export */
+function dl() {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([$('exp').value], { type: 'text/plain' })); a.download = 'export_test.txt';
+  document.body.appendChild(a); a.click(); a.remove(); log('download triggered');
+}
+async function share() {
+  if (!navigator.share) { log('share not available'); return; }
+  try { await navigator.share({ title: 'Export', text: $('exp').value }); log('share ok'); } catch (e) { log('share: ' + e.message); }
+}
+function copyTry() {
+  if (navigator.clipboard) navigator.clipboard.writeText($('exp').value).then(() => log('copy ok'), e => log('copy failed: ' + e.message));
+  else { $('exp').select(); log('no clipboard API, text selected'); }
+}
+
+/* drag reorder (pointer events, handle only) */
+const names = ['Brush teeth', 'Make bed', 'Pack lunch', 'Flashcards', 'Shoes on'];
+const list = $('list');
+names.forEach(n => {
+  const d = document.createElement('div'); d.className = 'item';
+  d.innerHTML = `<span class="handle">&#9776;</span><span>${n}</span>`;
+  const h = d.querySelector('.handle');
+  h.addEventListener('pointerdown', e => { h.setPointerCapture(e.pointerId); d.classList.add('drag'); });
+  h.addEventListener('pointermove', e => {
+    if (!d.classList.contains('drag')) return;
+    const over = [...list.children].find(c => c !== d && e.clientY > c.getBoundingClientRect().top && e.clientY < c.getBoundingClientRect().bottom);
+    if (over) list.insertBefore(d, e.clientY > over.getBoundingClientRect().top + over.offsetHeight / 2 ? over.nextSibling : over);
+  });
+  const end = () => { if (d.classList.contains('drag')) { d.classList.remove('drag'); log('order: ' + [...list.children].map(c => c.textContent.trim().slice(1)).join(', ')); } };
+  h.addEventListener('pointerup', end); h.addEventListener('pointercancel', end);
+  list.appendChild(d);
+});
+</script>
+</body>
+</html>

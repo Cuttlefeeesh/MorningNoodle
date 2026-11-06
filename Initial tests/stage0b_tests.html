@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="manifest" href="manifest.webmanifest">
+<title>Stage 0b tests</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 12px; font: 16px/1.4 system-ui, sans-serif; background: #121212; color: #fff; }
+  h1 { font-size: 1.2rem; margin: 0 0 8px; }
+  h2 { font-size: 1rem; color: #ffcc00; margin: 0 0 6px; }
+  section { background: #1a1a1a; border: 1px solid #333; border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  button { min-height: 48px; padding: 8px 14px; margin: 4px 4px 4px 0; background: #333; color: #fff; border: 0; border-radius: 8px; font-size: 1rem; }
+  button:active { background: #555; }
+  input { width: 100%; min-height: 44px; padding: 6px; background: #1e1e1e; color: #fff; border: 1px solid #444; border-radius: 6px; font-size: 1rem; }
+  p { margin: 4px 0 8px; font-size: 0.9rem; color: #bbb; }
+  #log { font: 0.8rem/1.5 monospace; white-space: pre-wrap; background: #000; padding: 8px; border-radius: 6px; min-height: 80px; }
+  #big { font-size: 1.6rem; font-weight: bold; margin: 6px 0; }
+</style>
+</head>
+<body>
+<h1>Stage 0b: closed browser, push, install</h1>
+
+<section><h2>A. Survives being closed</h2>
+  <p>Start the test, then close the browser (or let work focus mode close it). Reopen after a minute or more. The clock should show the true time left, not restart.</p>
+  <button onclick="startRun()">Start 5 min test run</button>
+  <button onclick="stopRun()">Clear</button>
+  <div id="big"></div>
+</section>
+
+<section><h2>B. Push through ntfy (works with the browser closed)</h2>
+  <p>1. Install the free ntfy app and subscribe to the topic below. 2. In Garmin Connect, allow notifications from ntfy. 3. In Android settings, set ntfy battery use to Unrestricted. Anyone who knows the topic name could send to it, so keep it to yourself.</p>
+  <label>Topic <input id="topic"></label>
+  <button onclick="newTopic()">Make new random topic</button>
+  <button onclick="sched(30)">Send in 30 s</button>
+  <button onclick="sched(60,'a1')">Schedule 60 s (id a1)</button>
+  <button onclick="replace()">Try to replace a1 with 120 s</button>
+  <p>Close the browser right after scheduling. Does the phone, then the watch, buzz at the right time?</p>
+</section>
+
+<section><h2>C. Installed app (Firefox menu, Install or Add to Home screen)</h2>
+  <p>After installing, open it from the home screen icon, start test A, then let work focus mode kick in or open the work profile. Does it get closed?</p>
+  <div id="mode"></div>
+</section>
+
+<section><h2>Log</h2>
+  <div id="log"></div>
+  <button onclick="navigator.clipboard ? navigator.clipboard.writeText(document.getElementById('log').textContent).then(()=>log('log copied'),()=>log('copy failed')) : log('no clipboard')">Copy log</button>
+  <button onclick="localStorage.removeItem('s0b_log'); document.getElementById('log').textContent=''">Clear log</button>
+</section>
+
+<script>
+const $ = id => document.getElementById(id);
+const t = () => new Date().toLocaleTimeString();
+function log(m) { const line = t() + '  ' + m + '\n'; $('log').textContent += line; try { localStorage.setItem('s0b_log', $('log').textContent); } catch (e) {} }
+$('log').textContent = localStorage.getItem('s0b_log') || '';
+$('mode').textContent = 'display mode: ' + (matchMedia('(display-mode: standalone)').matches ? 'installed (standalone)' : 'browser tab');
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => log('sw: ' + e.message));
+log('page opened');
+
+/* A: timestamp-based run, restored on load */
+let ticker = null;
+function startRun() { localStorage.setItem('s0b_end', Date.now() + 5 * 60000); localStorage.setItem('s0b_seen', Date.now()); log('run started, 5 min'); show(); }
+function stopRun() { localStorage.removeItem('s0b_end'); clearInterval(ticker); $('big').textContent = ''; log('run cleared'); }
+function show() {
+  clearInterval(ticker);
+  const end = parseInt(localStorage.getItem('s0b_end'));
+  if (!end) return;
+  const seen = parseInt(localStorage.getItem('s0b_seen'));
+  if (Date.now() - seen > 5000) log(`reopened after ${Math.round((Date.now() - seen) / 1000)} s away`);
+  const draw = () => {
+    localStorage.setItem('s0b_seen', Date.now());
+    const left = Math.round((end - Date.now()) / 1000);
+    $('big').textContent = left >= 0 ? `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} left` : `${-left} s over`;
+  };
+  draw(); ticker = setInterval(draw, 1000);
+}
+show();
+
+/* B: ntfy */
+function topic() { return $('topic').value.trim(); }
+function newTopic() { $('topic').value = 'rj-' + Math.random().toString(36).slice(2, 12); localStorage.setItem('s0b_topic', topic()); log('topic: ' + topic()); }
+$('topic').value = localStorage.getItem('s0b_topic') || ''; if (!topic()) newTopic();
+$('topic').addEventListener('change', () => localStorage.setItem('s0b_topic', topic()));
+async function send(method, path, delaySec, body) {
+  try {
+    const r = await fetch('https://ntfy.sh/' + topic() + path, { method, body, headers: { Title: 'Routine test', Delay: delaySec + 's' } });
+    log(`${method} ${path || '/'} delay ${delaySec}s: HTTP ${r.status} ${(await r.text()).slice(0, 120)}`);
+  } catch (e) { log('ntfy failed: ' + e.message); }
+}
+function sched(s, id) { send(id ? 'PUT' : 'POST', id ? '/' + id : '', s, `Item ended (due ${new Date(Date.now() + s * 1000).toLocaleTimeString()})`); }
+function replace() { send('PUT', '/a1', 120, `Replacement (due ${new Date(Date.now() + 120000).toLocaleTimeString()})`); }
+</script>
+</body>
+</html>
