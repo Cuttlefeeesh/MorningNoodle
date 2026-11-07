@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Phone runner - Stage 2b engine harness</title>
+<style>
+  :root { --bg:#1f2123; --panel:#292c2f; --line:#3d4145; --text:#e6e8ea; --dim:#9aa1a7; --ok:#6fbf8a; --bad:#e07a6f; --btn:#3a4046; --accent:#5f9a7e; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:12px; background:var(--bg); color:var(--text); font-family:'Segoe UI',system-ui,sans-serif; font-size:15px; line-height:1.4; max-width:680px; }
+  h1 { font-size:1.1rem; margin:0 0 2px 0; font-weight:600; }
+  h2 { font-size:0.98rem; margin:0 0 8px 0; font-weight:600; }
+  .dim { color:var(--dim); font-size:0.85rem; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:12px; margin:10px 0; }
+  button { background:var(--btn); color:var(--text); border:0; border-radius:4px; min-height:44px; padding:8px 14px; margin:0 6px 6px 0; font-size:0.95rem; }
+  button.main { background:var(--accent); color:#0f1f17; font-weight:600; }
+  button.small { min-height:36px; padding:4px 10px; margin:0 4px 4px 0; font-size:0.85rem; }
+  select, input[type=number], input[type=text] { min-height:40px; padding:6px; font-size:1rem; background:#17191b; color:var(--text); border:1px solid var(--line); border-radius:4px; margin:0 6px 6px 0; }
+  input[type=number] { width:70px; }
+  label { display:inline-block; margin-bottom:4px; }
+  #clock { font-size:1.5rem; font-weight:700; }
+  #endBox { margin:6px 0 2px 0; }
+  #endBig { font-size:1.9rem; font-weight:700; }
+  #endNote.over { color:var(--bad); } #endNote.early { color:var(--ok); }
+  #barWrap { position:relative; padding:24px 0 24px 0; margin:6px 0; }
+  #bar { display:flex; height:38px; border:1px solid #555a60; border-radius:4px; overflow:hidden; background:#17191b; }
+  .seg { height:100%; position:relative; border-right:1px solid #1f2123; min-width:2px; }
+  .seg.past { opacity:0.5; }
+  .seg.active { outline:2px solid #e6e8ea; outline-offset:-2px; }
+  .seg .fill { position:absolute; left:0; top:0; bottom:0; background:rgba(255,255,255,0.3); }
+  .seg.partial { background-image:repeating-linear-gradient(135deg, rgba(0,0,0,0.35) 0 4px, transparent 4px 8px); }
+  .seg.tail { background:repeating-linear-gradient(45deg, #a8856b, #a8856b 5px, #8c6d58 5px, #8c6d58 10px); }
+  .mark { position:absolute; width:0; border-left:2px solid #e6e8ea; }
+  .mark.orig { top:14px; bottom:24px; }
+  .mark.newm { top:24px; bottom:14px; border-left-color:var(--ok); }
+  .mlabel { position:absolute; font-size:0.75rem; white-space:nowrap; transform:translateX(-50%); }
+  .mlabel.orig { top:0; } .mlabel.newm { bottom:0; color:var(--ok); }
+  #detail { min-height:2.6em; font-size:0.9rem; }
+  .row { border-top:1px solid var(--line); padding:6px 0; }
+  .row.hidden, .row.skipped, .row.done { color:var(--dim); }
+  .row .name { font-weight:600; }
+  .swatch { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; }
+  #status { min-height:1.3em; color:var(--bad); font-size:0.9rem; }
+  #selftest { font-size:0.8rem; }
+  .sel-pass { color:var(--ok); } .sel-fail { color:var(--bad); }
+</style>
+</head>
+<body>
+<h1>Phone runner - Stage 2b: engine harness</h1>
+<div class="dim">Drive the engine by hand with a fake clock. Times are minutes from the run start.</div>
+<div id="selftest" class="dim"></div>
+
+<div id="setup" class="panel">
+  <h2>Start a run</h2>
+  <label>Routine <select id="preset"></select></label><br>
+  <label>End mode <select id="mode"><option value="required">Required end (compress to fit)</option><option value="open">Open-ended (suggested end)</option></select></label><br>
+  <label id="endLabel">Required end (min) <input type="number" id="endMin" min="1"></label><br>
+  <button class="main" type="button" id="startBtn">Start run</button>
+</div>
+
+<div id="run" style="display:none;">
+  <div class="panel">
+    <div><span class="dim">Clock</span> <span id="clock"></span></div>
+    <div>
+      <button type="button" data-adv="1">+1 min</button>
+      <button type="button" data-adv="5">+5 min</button>
+      <button type="button" data-adv="15">+15 min</button>
+      <button type="button" id="undoBtn">Undo</button>
+    </div>
+    <div id="endBox"><span class="dim" id="endLbl"></span><div id="endBig"></div><div id="endNote" class="dim"></div></div>
+    <div id="barWrap"><div id="bar"></div></div>
+    <div id="detail" class="dim">Tap a block to see what it is.</div>
+    <div id="actions">
+      <button type="button" class="main" id="completeBtn">Complete current item</button>
+      <button type="button" id="pushBtn">Push forward</button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Items</h2>
+    <div id="items"></div>
+    <div style="border-top:1px solid var(--line); padding-top:10px; margin-top:6px;">
+      <div class="dim" style="margin-bottom:6px;">Add an item at the end</div>
+      <input type="text" id="addName" placeholder="Name" style="width:150px;">
+      <input type="number" id="addDur" min="0" value="5">
+      <select id="addType">
+        <option value="est">Estimate item</option>
+        <option value="min">Minimum item</option>
+        <option value="buf:task">Task buffer</option>
+        <option value="buf:break">Break buffer</option>
+      </select>
+      <button type="button" id="addBtn">Add</button>
+    </div>
+  </div>
+
+  <button type="button" id="resetBtn">Back to setup</button>
+</div>
+
+<script id="engine">
+const ENGINE = (function () {
+  const FLOOR_FRACTION = 0.8;   // min / est items compress to this share of their remaining time
+  const GROW_WEIGHT_MIN = 5;    // buffers grow in proportion to max(default, this)
+  const BUFFER_MIN_SHOW = 1;    // a buffer shorter than this (minutes) is not shown
+  const EPS = 1e-9;
+
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const sum = (arr, f) => arr.reduce((t, x) => t + f(x), 0);
+  const isBuf = it => it.type === 'buf';
+  const spentOf = (it, now) => it.spent + (it.status === 'active' ? Math.max(0, now - it.activeSince) : 0);
+  const baseRemaining = (it, now) => Math.max(0, it.dur - spentOf(it, now));
+  const totalPlanned = s => sum(s.items, i => i.dur);
+  // Required mode: the fixed end. Open mode: start + everything planned (moves when items are added or removed).
+  const referenceEnd = s => s.mode === 'required' ? s.requiredEnd : s.start + totalPlanned(s);
+  const activeItem = s => s.items.find(i => i.status === 'active') || null;
+  const byId = (s, id) => s.items.find(i => i.id === id);
+
+  function makeItem(s, spec) {
+    s.nextId = (s.nextId || 0) + 1;
+    const type = spec.type;
+    return {
+      id: 'i' + s.nextId, type, kind: type === 'buf' ? (spec.kind || 'task') : 'work',
+      name: spec.name, dur: spec.dur, status: 'pending', spent: 0, activeSince: null
+    };
+  }
+
+  function createRun(cfg) {
+    const s = { mode: cfg.mode, start: cfg.start, requiredEnd: cfg.mode === 'required' ? cfg.requiredEnd : null,
+                items: [], history: [], nextId: 0, finished: false };
+    cfg.items.forEach(spec => s.items.push(makeItem(s, spec)));
+    return activateNext(s, cfg.start);
+  }
+
+  /* ---------- layout ----------
+     Lays out every not-yet-finished item from `now`.
+     Required: slack = (end - now) - work - buffer defaults.
+       slack >= 0: buffers grow by weight max(default, 5), no cap. No buffers: saved time (free tail).
+       slack <  0: buffers shrink in proportion to default, then items compress to 80%,
+                   then the projected end runs past the required end.
+     Open: same, except items never compress; past the buffers the projected end moves later.
+     Buffers that would be shorter than BUFFER_MIN_SHOW disappear (the active one never does). */
+  function layout(s, now) {
+    const live = s.items.filter(i => i.status === 'pending' || i.status === 'active');
+    const info = live.map(it => ({ it, base: baseRemaining(it, now), len: 0, hidden: false, live: true }));
+    const W = info.filter(x => !isBuf(x.it));
+    const B = info.filter(x => isBuf(x.it));
+    const Wsum = sum(W, x => x.base);
+    const ref = referenceEnd(s);
+    const A = ref - now;
+
+    for (;;) {
+      const liveB = B.filter(x => x.live);
+      const Bdef = sum(liveB, x => x.base);
+      const slack = A - Wsum - Bdef;
+      W.forEach(x => { x.len = x.base; });
+      if (slack >= 0) {
+        if (liveB.length) {
+          const wts = liveB.map(x => Math.max(x.base, GROW_WEIGHT_MIN));
+          const wsum = sum(wts, w => w);
+          liveB.forEach((x, i) => { x.len = x.base + slack * wts[i] / wsum; });
+        }
+      } else {
+        const deficit = -slack;
+        if (deficit <= Bdef + EPS) {
+          liveB.forEach(x => { x.len = Bdef > EPS ? x.base * (1 - deficit / Bdef) : 0; });
+        } else {
+          liveB.forEach(x => { x.len = 0; });
+          const d2 = deficit - Bdef;
+          if (s.mode === 'required') {
+            const comp = sum(W, x => (1 - FLOOR_FRACTION) * x.base);
+            if (comp > EPS) {
+              const f = Math.min(1, d2 / comp);
+              W.forEach(x => { x.len = x.base - (1 - FLOOR_FRACTION) * x.base * f; });
+            }
+          }
+        }
+      }
+      const tiny = liveB.filter(x => x.len < BUFFER_MIN_SHOW && x.it.status !== 'active');
+      if (!tiny.length) break;
+      tiny.forEach(x => { x.live = false; x.len = 0; x.hidden = true; });
+    }
+
+    let t = now;
+    const blocks = info.map(x => {
+      const start = t; t += x.len;
+      return { id: x.it.id, name: x.it.name, type: x.it.type, kind: x.it.kind, status: x.it.status,
+               start, end: t, len: x.len, base: x.base, hidden: x.hidden };
+    });
+    const projectedEnd = t;
+    return {
+      mode: s.mode, now, blocks, projectedEnd, referenceEnd: ref,
+      overBy: Math.max(0, projectedEnd - ref),
+      freeTail: Math.max(0, ref - projectedEnd),
+      history: s.history.slice()
+    };
+  }
+
+  /* ---------- events (each returns { state, error }) ---------- */
+  function activateNext(s, now) {
+    const lay = layout(s, now);
+    let activated = false;
+    for (const b of lay.blocks) {
+      const it = byId(s, b.id);
+      if (b.hidden) { it.status = 'skipped'; continue; }     // hidden buffers up to the next visible item are passed over
+      it.status = 'active'; it.activeSince = now; activated = true; break;
+    }
+    if (!activated) {
+      s.items.forEach(i => { if (i.status === 'pending') i.status = 'skipped'; });
+      s.finished = true;
+    }
+    return s;
+  }
+
+  function complete(state, now) {
+    const s = clone(state);
+    const act = activeItem(s);
+    if (!act) return { state: s, error: 'no active item' };
+    act.spent = spentOf(act, now);
+    s.history.push({ id: act.id, name: act.name, from: act.activeSince, to: now, partial: false });
+    act.status = 'done'; act.activeSince = null;
+    activateNext(s, now);
+    return { state: s, error: null };
+  }
+
+  // Skips the active item one position, for this run only. Time already spent stays on the
+  // item (and on the timeline as a partial block) and counts against it when it comes up again.
+  function pushForward(state, now) {
+    const s = clone(state);
+    const idx = s.items.findIndex(i => i.status === 'active');
+    if (idx < 0) return { state: s, error: 'no active item' };
+    const hidden = new Set(layout(s, now).blocks.filter(b => b.hidden).map(b => b.id));
+    let j = -1;
+    for (let k = idx + 1; k < s.items.length; k++) {
+      if (s.items[k].status === 'pending' && !hidden.has(s.items[k].id)) { j = k; break; }
+    }
+    if (j < 0) return { state: s, error: 'nothing to push past' };
+    const act = s.items[idx];
+    act.spent = spentOf(act, now);
+    s.history.push({ id: act.id, name: act.name, from: act.activeSince, to: now, partial: true });
+    act.status = 'pending'; act.activeSince = null;
+    for (let k = idx + 1; k < j; k++) if (s.items[k].status === 'pending') s.items[k].status = 'skipped';
+    s.items.splice(idx, 1);          // target is now at j - 1
+    s.items.splice(j, 0, act);       // pushed item lands right after it
+    const target = s.items[j - 1];
+    target.status = 'active'; target.activeSince = now;
+    return { state: s, error: null };
+  }
+
+  /* ---------- mid-run edits: only items that have not started ---------- */
+  function frontier(s) {
+    const k = s.items.findIndex(i => i.status === 'pending');
+    return k < 0 ? s.items.length : k;
+  }
+  function addItem(state, spec, atIndex) {
+    const s = clone(state);
+    if (s.finished) return { state: s, error: 'run finished' };
+    const idx = Math.max(atIndex === undefined ? s.items.length : atIndex, frontier(s));
+    s.items.splice(Math.min(idx, s.items.length), 0, makeItem(s, spec));
+    return { state: s, error: null };
+  }
+  function deleteItem(state, id) {
+    const s = clone(state);
+    const it = byId(s, id);
+    if (!it) return { state: s, error: 'no such item' };
+    if (it.status !== 'pending') return { state: s, error: 'only items not yet started can be deleted' };
+    s.items = s.items.filter(i => i.id !== id);
+    return { state: s, error: null };
+  }
+  function moveItem(state, id, dir) {
+    const s = clone(state);
+    const k = s.items.findIndex(i => i.id === id);
+    if (k < 0) return { state: s, error: 'no such item' };
+    if (s.items[k].status !== 'pending') return { state: s, error: 'only items not yet started can be moved' };
+    const k2 = k + (dir < 0 ? -1 : 1);
+    if (k2 < 0 || k2 >= s.items.length || s.items[k2].status !== 'pending') return { state: s, error: 'cannot move there' };
+    [s.items[k], s.items[k2]] = [s.items[k2], s.items[k]];
+    return { state: s, error: null };
+  }
+  // patch may hold name, dur; type/kind only for items not yet started. The active item keeps its time spent.
+  function updateItem(state, id, patch) {
+    const s = clone(state);
+    const it = byId(s, id);
+    if (!it) return { state: s, error: 'no such item' };
+    if (it.status !== 'pending' && it.status !== 'active') return { state: s, error: 'finished items cannot be edited' };
+    if (patch.name !== undefined) it.name = patch.name;
+    if (patch.dur !== undefined) it.dur = patch.dur;
+    if (it.status === 'pending') {
+      if (patch.type !== undefined) it.type = patch.type;
+      if (patch.kind !== undefined) it.kind = patch.kind;
+      it.kind = it.type === 'buf' ? (it.kind === 'break' ? 'break' : 'task') : 'work';
+    }
+    return { state: s, error: null };
+  }
+
+  /* ---------- readable dump ---------- */
+  const f1 = n => (Math.round(n * 10) / 10).toFixed(1);
+  function describe(lay, s) {
+    const lines = [];
+    (s ? s.history : lay.history).forEach(h => lines.push(`  past   ${h.name}: ${f1(h.from)} to ${f1(h.to)}${h.partial ? ' (partial, pushed)' : ''}`));
+    lay.blocks.forEach(b => {
+      if (b.hidden) { lines.push(`  hidden ${b.name} (${b.kind})`); return; }
+      lines.push(`  ${b.status === 'active' ? 'now   ' : 'next  '} ${b.name}${b.type === 'buf' ? ' [' + b.kind + ' buffer]' : ''}: ${f1(b.start)} to ${f1(b.end)} (${f1(b.len)} min)`);
+    });
+    lines.push(`  projected end ${f1(lay.projectedEnd)}, reference end ${f1(lay.referenceEnd)}` +
+      (lay.overBy > 1e-6 ? `, OVER by ${f1(lay.overBy)}` : '') + (lay.freeTail > 1e-6 ? `, saved tail ${f1(lay.freeTail)}` : ''));
+    return lines.join('\n');
+  }
+
+  return { createRun, layout, complete, pushForward, addItem, deleteItem, moveItem, updateItem,
+           activeItem, describe, constants: { FLOOR_FRACTION, GROW_WEIGHT_MIN, BUFFER_MIN_SHOW } };
+})();
+</script>
+<script id="tests">
+function runAllTests() {
+  const E = ENGINE;
+  const results = [];
+  const f2 = n => (Math.round(n * 100) / 100).toString();
+
+  function scenario(title, desc, fn) {
+    const checks = [], notes = [];
+    const c = {
+      near(label, got, want, tol) { checks.push({ label, got: f2(got), want: f2(want), pass: Math.abs(got - want) <= (tol === undefined ? 0.01 : tol) }); },
+      eq(label, got, want) { checks.push({ label, got: String(got), want: String(want), pass: got === want }); },
+      ok(label, cond) { checks.push({ label, got: String(!!cond), want: 'true', pass: !!cond }); },
+      note(t) { notes.push(t); }
+    };
+    try { fn(c); } catch (e) { checks.push({ label: 'scenario threw an error', got: String(e && e.message || e), want: 'no error', pass: false }); }
+    results.push({ title, desc, checks, notes, pass: checks.every(x => x.pass) });
+  }
+
+  // 60 minutes planned: Cleanup 10 (min), Pack lunch 20 (est), task buffer 10, Make bed 15 (est), break buffer 5.
+  const routineR = () => [
+    { type: 'min', name: 'Cleanup', dur: 10 },
+    { type: 'est', name: 'Pack lunch', dur: 20 },
+    { type: 'buf', kind: 'task', name: 'Task buffer', dur: 10 },
+    { type: 'est', name: 'Make bed', dur: 15 },
+    { type: 'buf', kind: 'break', name: 'Break buffer', dur: 5 }
+  ];
+  const L = (lay, name) => lay.blocks.find(b => b.name === name);
+  const names = s => s.items.map(i => i.name + (i.status === 'pending' ? '' : ':' + i.status)).join(' | ');
+  const req = () => E.createRun({ items: routineR(), mode: 'required', start: 0, requiredEnd: 60 });
+  const open = () => E.createRun({ items: routineR(), mode: 'open', start: 0 });
+  const done = (s, t) => E.complete(s, t).state;
+
+  scenario('1. On time, required end',
+    'Everything finishes exactly as planned: items and buffers stay at their defaults and the end is 60.', c => {
+    let s = req(), lay = E.layout(s, 0);
+    c.eq('first item is active', E.activeItem(s).name, 'Cleanup');
+    c.near('projected end at start', lay.projectedEnd, 60);
+    s = done(s, 10); lay = E.layout(s, 10);
+    c.eq('Pack lunch is active', E.activeItem(s).name, 'Pack lunch');
+    c.near('Pack lunch length', L(lay, 'Pack lunch').len, 20);
+    c.near('task buffer', L(lay, 'Task buffer').len, 10);
+    c.near('break buffer', L(lay, 'Break buffer').len, 5);
+    c.near('projected end', lay.projectedEnd, 60);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('2. Early finish, required end, with buffers',
+    'Cleanup done 4 min early. The 4 spare minutes go to the buffers, weighted 10 : 5.', c => {
+    let s = done(req(), 6); const lay = E.layout(s, 6);
+    c.near('Pack lunch stays at 20', L(lay, 'Pack lunch').len, 20);
+    c.near('Make bed stays at 15', L(lay, 'Make bed').len, 15);
+    c.near('task buffer grows', L(lay, 'Task buffer').len, 10 + 4 * 10 / 15);
+    c.near('break buffer grows', L(lay, 'Break buffer').len, 5 + 4 * 5 / 15);
+    c.near('projected end', lay.projectedEnd, 60);
+    c.near('no saved tail', lay.freeTail, 0);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('3. Small overrun absorbed by buffers only',
+    'Cleanup done 4 min late. Buffers shrink in proportion to their defaults; items stay full length.', c => {
+    let s = done(req(), 14); const lay = E.layout(s, 14);
+    c.near('Pack lunch stays at 20', L(lay, 'Pack lunch').len, 20);
+    c.near('task buffer', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
+    c.near('break buffer', L(lay, 'Break buffer').len, 5 * (1 - 4 / 15));
+    c.near('projected end', lay.projectedEnd, 60);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('4. Bigger overrun: buffers vanish, items compress',
+    'Cleanup done 20 min late. Both buffers disappear and the two estimate items shrink, but stay above 80%.', c => {
+    let s = done(req(), 30); const lay = E.layout(s, 30);
+    c.ok('task buffer hidden', L(lay, 'Task buffer').hidden);
+    c.ok('break buffer hidden', L(lay, 'Break buffer').hidden);
+    c.near('Pack lunch', L(lay, 'Pack lunch').len, 20 - 4 * (5 / 7));
+    c.near('Make bed', L(lay, 'Make bed').len, 15 - 3 * (5 / 7));
+    c.ok('Pack lunch at least 80%', L(lay, 'Pack lunch').len >= 16 - 1e-9);
+    c.near('projected end', lay.projectedEnd, 60);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('5. Overrun too big even for the 80% floors',
+    'Cleanup done 30 min late. Items sit at their floors and the projected end runs past the required end.', c => {
+    let s = done(req(), 40); const lay = E.layout(s, 40);
+    c.near('Pack lunch at floor', L(lay, 'Pack lunch').len, 16);
+    c.near('Make bed at floor', L(lay, 'Make bed').len, 12);
+    c.near('over by', lay.overBy, 8);
+    c.near('projected end', lay.projectedEnd, 68);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('6. Late, then caught up (full reversal), required end',
+    'Cleanup 4 late, then Pack lunch 4 early. Buffers return exactly to their defaults.', c => {
+    let s = done(req(), 14);
+    let lay = E.layout(s, 14);
+    c.near('after the delay, task buffer is shrunk', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
+    s = done(s, 30); lay = E.layout(s, 30);
+    c.near('task buffer back to default', L(lay, 'Task buffer').len, 10);
+    c.near('break buffer back to default', L(lay, 'Break buffer').len, 5);
+    c.near('Make bed full length', L(lay, 'Make bed').len, 15);
+    c.near('projected end', lay.projectedEnd, 60);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('7. Open-ended: late, then catching up',
+    'Open end, suggested 60. Buffers shrink first; past that the end moves later; catching up brings the end back, then buffers regrow.', c => {
+    let s = open(), lay = E.layout(s, 0);
+    c.near('suggested end', lay.referenceEnd, 60);
+    let a = done(s, 14); lay = E.layout(a, 14);
+    c.near('4 late: end unchanged', lay.projectedEnd, 60);
+    c.near('4 late: task buffer shrinks', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
+    a = done(s, 30); lay = E.layout(a, 30);
+    c.ok('20 late: buffers gone', L(lay, 'Task buffer').hidden && L(lay, 'Break buffer').hidden);
+    c.near('20 late: items not compressed', L(lay, 'Pack lunch').len, 20);
+    c.near('20 late: end moves later', lay.projectedEnd, 65);
+    c.near('20 late: over by', lay.overBy, 5);
+    // Pack lunch then finishes at 40 (10 min early): the end returns to 60 and buffers partly return.
+    let b = done(a, 40); lay = E.layout(b, 40);
+    c.near('then 10 early: end back to original', lay.projectedEnd, 60);
+    c.near('then 10 early: task buffer partly back', L(lay, 'Task buffer').len, 10 * (1 - 10 / 15));
+    // Ahead of schedule from the start: buffers grow, end stays 60.
+    const e = done(s, 5); lay = E.layout(e, 5);
+    c.near('5 early: task buffer grows', L(lay, 'Task buffer').len, 10 + 5 * 10 / 15);
+    c.near('5 early: end stays', lay.projectedEnd, 60);
+    c.note(E.describe(lay, e));
+  });
+
+  scenario('8. No buffers, ahead of schedule',
+    'Two items, 30 planned. Cleanup done 4 early: the end moves earlier and the saved time is shown at the end.', c => {
+    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
+    ['required', 'open'].forEach(mode => {
+      const s = E.createRun({ items, mode, start: 0, requiredEnd: 30 });
+      const t = done(s, 6), lay = E.layout(t, 6);
+      c.near(mode + ': projected end moves earlier', lay.projectedEnd, 26);
+      c.near(mode + ': saved tail', lay.freeTail, 4);
+      c.near(mode + ': reference end', lay.referenceEnd, 30);
+      if (mode === 'open') c.note(E.describe(lay, t));
+    });
+  });
+
+  scenario('9. Push forward',
+    'Skip the current item for this run only. Time spent stays on it and counts when it returns.', c => {
+    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }, { type: 'est', name: 'Make bed', dur: 15 }];
+    let s = E.createRun({ items, mode: 'open', start: 0 });
+    let r = E.pushForward(s, 4); s = r.state;
+    c.eq('no error', r.error, null);
+    c.eq('Pack lunch now active', E.activeItem(s).name, 'Pack lunch');
+    c.eq('order', names(s), 'Pack lunch:active | Cleanup | Make bed');
+    c.eq('partial block recorded', s.history.length === 1 && s.history[0].partial && s.history[0].from === 0 && s.history[0].to === 4, true);
+    let lay = E.layout(s, 4);
+    c.near('Cleanup remaining counts spent time', L(lay, 'Cleanup').len, 6);
+    c.near('Cleanup starts after Pack lunch', L(lay, 'Cleanup').start, 24);
+    c.near('open end unchanged', lay.projectedEnd, 45);
+    c.note(E.describe(lay, s));
+    // single item: nothing to push past
+    const one = E.createRun({ items: [{ type: 'min', name: 'Only', dur: 5 }], mode: 'open', start: 0 });
+    c.eq('nothing to push past', E.pushForward(one, 1).error, 'nothing to push past');
+  });
+
+  scenario('9b. Push forward passes over a hidden buffer',
+    'A buffer that has no room is not shown, so push forward swaps with the next visible item instead.', c => {
+    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'buf', kind: 'task', name: 'Task buffer', dur: 5 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
+    let s = E.createRun({ items, mode: 'required', start: 0, requiredEnd: 30 });
+    c.ok('buffer hidden at start', E.layout(s, 0).blocks.find(b => b.name === 'Task buffer').hidden);
+    const r = E.pushForward(s, 2); s = r.state;
+    c.eq('no error', r.error, null);
+    c.eq('Pack lunch active', E.activeItem(s).name, 'Pack lunch');
+    c.eq('order and statuses', names(s), 'Task buffer:skipped | Pack lunch:active | Cleanup');
+    c.note(E.describe(E.layout(s, 2), s));
+  });
+
+  scenario('10. Mid-run edits, required end',
+    'After Cleanup is done at 6 (Pack lunch active): add, delete, move, update. Required end stays 60.', c => {
+    let s = done(req(), 6);
+    let r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 });
+    let lay = E.layout(r.state, 6);
+    c.near('add 5 min item: task buffer shrinks', L(lay, 'Task buffer').len, 10 * 14 / 15);
+    c.near('add 5 min item: break buffer shrinks', L(lay, 'Break buffer').len, 5 * 14 / 15);
+    c.near('add 5 min item: end stays 60', lay.projectedEnd, 60);
+
+    r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 }, 0);
+    c.eq('add at index 0 lands after the active item', names(r.state), 'Cleanup:done | Pack lunch:active | Trash | Task buffer | Make bed | Break buffer');
+
+    const bed = s.items.find(i => i.name === 'Make bed');
+    r = E.deleteItem(s, bed.id); lay = E.layout(r.state, 6);
+    c.near('delete Make bed: task buffer grows', L(lay, 'Task buffer').len, 10 + 19 * 10 / 15);
+    c.near('delete Make bed: break buffer grows', L(lay, 'Break buffer').len, 5 + 19 * 5 / 15);
+
+    c.ok('cannot delete a finished item', E.deleteItem(s, s.items[0].id).error !== null);
+    c.ok('cannot delete the active item', E.deleteItem(s, E.activeItem(s).id).error !== null);
+
+    r = E.moveItem(s, bed.id, -1);
+    c.eq('move Make bed up past the task buffer', names(r.state), 'Cleanup:done | Pack lunch:active | Make bed | Task buffer | Break buffer');
+    c.ok('cannot move above the active item', E.moveItem(r.state, bed.id, -1).error !== null);
+    c.ok('cannot move the active item', E.moveItem(s, E.activeItem(s).id, 1).error !== null);
+
+    r = E.updateItem(s, E.activeItem(s).id, { dur: 25 }); lay = E.layout(r.state, 6);
+    c.near('lengthen the active item by 5: Pack lunch remaining', L(lay, 'Pack lunch').len, 25);
+    c.near('lengthen the active item by 5: task buffer shrinks', L(lay, 'Task buffer').len, 10 * 14 / 15);
+    c.near('lengthen the active item by 5: end stays 60', lay.projectedEnd, 60);
+  });
+
+  scenario('10b. Mid-run edits, open end',
+    'Adding an item moves the suggested end later; deleting moves it earlier.', c => {
+    let s = done(open(), 6);
+    let r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 });
+    let lay = E.layout(r.state, 6);
+    c.near('suggested end moves to 65', lay.referenceEnd, 65);
+    c.near('projected end', lay.projectedEnd, 65);
+    c.near('task buffer: 4 early minutes still in the buffers', L(lay, 'Task buffer').len, 10 + 4 * 10 / 15);
+    const bed = s.items.find(i => i.name === 'Make bed');
+    r = E.deleteItem(s, bed.id); lay = E.layout(r.state, 6);
+    c.near('delete 15 min item: suggested end moves to 45', lay.referenceEnd, 45);
+    c.near('projected end', lay.projectedEnd, 45);
+  });
+
+  scenario('11. Tight run to the finish',
+    'Cleanup done at 30 (20 late), then each item at its compressed length. Skipped buffers stay skipped; run ends at 60.', c => {
+    let s = done(req(), 30);
+    let lay = E.layout(s, 30);
+    const t1 = 30 + L(lay, 'Pack lunch').len;
+    s = done(s, t1); lay = E.layout(s, t1);
+    c.eq('Make bed active (buffer passed over)', E.activeItem(s).name, 'Make bed');
+    c.near('Make bed length', L(lay, 'Make bed').len, 90 / 7);
+    const t2 = t1 + L(lay, 'Make bed').len;
+    s = done(s, t2);
+    c.eq('run finished', s.finished, true);
+    c.near('finished at 60', t2, 60, 0.05);
+    c.eq('statuses', names(s), 'Cleanup:done | Pack lunch:done | Task buffer:skipped | Make bed:done | Break buffer:skipped');
+  });
+
+  scenario('12. Sweep: Cleanup done at every minute 0 to 60',
+    'Invariants for the required end: lengths never negative, end holds unless over, buffer total only falls as time is lost.', c => {
+    let bad = [], prevBuf = Infinity, monotone = true, tailWithBuf = false;
+    for (let t = 0; t <= 60; t++) {
+      const s = done(req(), t); const lay = E.layout(s, t);
+      if (s.finished) continue;
+      if (lay.blocks.some(b => b.len < -1e-9)) bad.push('negative length at ' + t);
+      if (lay.overBy < 1e-6 && lay.freeTail < 1e-6 && Math.abs(lay.projectedEnd - 60) > 1e-6) bad.push('end drifted at ' + t);
+      if (lay.overBy > 1e-6 && lay.projectedEnd < 60) bad.push('over flag wrong at ' + t);
+      const bufTotal = lay.blocks.filter(b => b.type === 'buf').reduce((a, b) => a + b.len, 0);
+      if (bufTotal > prevBuf + 1e-6) monotone = false;
+      prevBuf = bufTotal;
+      if (lay.freeTail > 1e-6 && lay.blocks.some(b => b.type === 'buf' && !b.hidden)) tailWithBuf = true;
+    }
+    c.eq('no invariant violations', bad.join('; ') || 'none', 'none');
+    c.ok('buffer total never grows as completion time gets later', monotone);
+    c.ok('saved tail only appears when no buffer is showing', !tailWithBuf);
+  });
+
+  return results;
+}
+</script>
+<script id="ui">
+(function () {
+  if (typeof document === 'undefined') return;
+  const E = ENGINE;
+  const $ = id => document.getElementById(id);
+  const f1 = n => (Math.round(n * 10) / 10).toFixed(1);
+  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const clone = o => JSON.parse(JSON.stringify(o));
+
+  const PRESETS = {
+    test: { label: 'Test routine (60 min, task and break buffer)', end: 60, items: [
+      { type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 },
+      { type: 'buf', kind: 'task', name: 'Task buffer', dur: 10 }, { type: 'est', name: 'Make bed', dur: 15 },
+      { type: 'buf', kind: 'break', name: 'Break buffer', dur: 5 } ] },
+    nobuf: { label: 'No buffers (30 min)', end: 30, items: [
+      { type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 } ] },
+    morning: { label: 'Longer morning (75 min, includes a 0-minute buffer)', end: 75, items: [
+      { type: 'est', name: 'Brush teeth', dur: 5 }, { type: 'est', name: 'Make bed', dur: 5 },
+      { type: 'min', name: 'House cleanup', dur: 15 }, { type: 'est', name: 'Pack lunch', dur: 15 },
+      { type: 'buf', kind: 'task', name: 'Habits and tasks', dur: 10 }, { type: 'min', name: 'Flashcards', dur: 15 },
+      { type: 'buf', kind: 'break', name: 'Break', dur: 5 }, { type: 'est', name: 'Shoes and keys', dur: 5 },
+      { type: 'buf', kind: 'task', name: 'Extra buffer (0 default)', dur: 0 } ] }
+  };
+
+  let state = null, now = 0, undo = [], segs = [], resetPending = false;
+
+  const colorFor = it => it.type === 'min' ? '#5b7f95' : it.type === 'est' ? '#5f9a7e' : it.kind === 'break' ? '#a8856b' : '#8b7bb0';
+  const typeLabel = it => it.type === 'min' ? 'minimum item' : it.type === 'est' ? 'estimate item' : it.kind === 'break' ? 'break buffer' : 'task buffer';
+  const itemById = id => state.items.find(i => i.id === id);
+
+  /* ---------- setup ---------- */
+  $('preset').innerHTML = Object.keys(PRESETS).map(k => `<option value="${k}">${esc(PRESETS[k].label)}</option>`).join('');
+  function syncSetup() {
+    $('endMin').value = PRESETS[$('preset').value].end;
+    $('endLabel').style.display = $('mode').value === 'required' ? 'inline-block' : 'none';
+  }
+  $('preset').addEventListener('change', syncSetup);
+  $('mode').addEventListener('change', syncSetup);
+  syncSetup();
+
+  $('startBtn').addEventListener('click', () => {
+    const p = PRESETS[$('preset').value], mode = $('mode').value;
+    const end = parseFloat($('endMin').value);
+    if (mode === 'required' && !(end > 0)) { setStatus('Enter a required end greater than 0.'); return; }
+    state = E.createRun({ items: clone(p.items), mode, start: 0, requiredEnd: end });
+    now = 0; undo = []; resetPending = false;
+    setStatus(''); render();
+  });
+
+  /* ---------- actions ---------- */
+  function setStatus(m) { $('status').textContent = m || ''; }
+  function snapshot() { undo.push({ state: clone(state), now }); if (undo.length > 100) undo.shift(); }
+  function apply(fn) {
+    snapshot();
+    const r = fn();
+    if (r.error) { undo.pop(); setStatus(r.error); } else { state = r.state; setStatus(''); }
+    render();
+  }
+  document.querySelectorAll('[data-adv]').forEach(b => b.addEventListener('click', () => {
+    if (!state || state.finished) return;
+    snapshot(); now += parseFloat(b.getAttribute('data-adv')); setStatus(''); render();
+  }));
+  $('undoBtn').addEventListener('click', () => {
+    if (!undo.length) { setStatus('Nothing to undo.'); return; }
+    const u = undo.pop(); state = u.state; now = u.now; setStatus(''); render();
+  });
+  $('completeBtn').addEventListener('click', () => apply(() => E.complete(state, now)));
+  $('pushBtn').addEventListener('click', () => apply(() => E.pushForward(state, now)));
+  $('addBtn').addEventListener('click', () => {
+    const name = $('addName').value.trim() || 'New item';
+    const dur = parseFloat($('addDur').value);
+    if (!(dur >= 0)) { setStatus('Enter minutes of 0 or more.'); return; }
+    const t = $('addType').value;
+    const spec = t.startsWith('buf:') ? { type: 'buf', kind: t.slice(4), name, dur } : { type: t, name, dur };
+    apply(() => E.addItem(state, spec));
+    $('addName').value = '';
+  });
+  $('resetBtn').addEventListener('click', () => {
+    if (!resetPending) { resetPending = true; $('resetBtn').textContent = 'Confirm: discard this run?'; setTimeout(() => { resetPending = false; $('resetBtn').textContent = 'Back to setup'; }, 4000); return; }
+    resetPending = false; $('resetBtn').textContent = 'Back to setup';
+    state = null; undo = []; render();
+  });
+  window.itemAct = function (kind, id) {
+    if (kind === 'up') apply(() => E.moveItem(state, id, -1));
+    else if (kind === 'down') apply(() => E.moveItem(state, id, 1));
+    else if (kind === 'del') apply(() => E.deleteItem(state, id));
+    else if (kind === 'dur') {
+      const v = parseFloat($('dur-' + id).value);
+      if (!(v >= 0)) { setStatus('Enter minutes of 0 or more.'); return; }
+      apply(() => E.updateItem(state, id, { dur: v }));
+    }
+  };
+  window.showSeg = function (i) {
+    const s = segs[i]; if (!s) return;
+    if (s.tail) { $('detail').textContent = `Saved time: ${f1(s.from)} to ${f1(s.to)} (${f1(s.to - s.from)} min) that nothing is scheduled for.`; return; }
+    const it = s.it;
+    let txt = `${it.name}, ${typeLabel(it)}, planned ${f1(it.dur)} min. `;
+    if (s.past) txt += `${s.partial ? 'Pushed forward after' : 'Done after'} ${f1(s.to - s.from)} min (${f1(s.from)} to ${f1(s.to)}).`;
+    else if (s.active) txt += `Running since ${f1(s.from)}, ${f1(s.elapsed)} min so far, ${f1(Math.max(0, s.to - now))} min left in this layout.`;
+    else txt += `Laid out ${f1(s.from)} to ${f1(s.to)} (${f1(s.to - s.from)} min).`;
+    $('detail').textContent = txt;
+  };
+
+  /* ---------- render ---------- */
+  function render() {
+    $('setup').style.display = state ? 'none' : 'block';
+    $('run').style.display = state ? 'block' : 'none';
+    if (!state) return;
+    const lay = E.layout(state, now);
+    const act = E.activeItem(state);
+    $('clock').textContent = `t = ${f1(now)}`;
+    $('completeBtn').disabled = $('pushBtn').disabled = state.finished;
+    $('addBtn').disabled = state.finished;
+
+    // end box
+    const endName = state.mode === 'required' ? 'Required end' : 'Suggested end';
+    if (state.finished) {
+      $('endLbl').textContent = 'Run finished';
+      $('endBig').textContent = `at t = ${f1(state.history.length ? state.history[state.history.length - 1].to : now)}`;
+      $('endNote').className = 'dim'; $('endNote').textContent = `${endName} was ${f1(lay.referenceEnd)}.`;
+    } else {
+      $('endLbl').textContent = 'Projected end';
+      $('endBig').textContent = `t = ${f1(lay.projectedEnd)}`;
+      const n = $('endNote');
+      if (lay.overBy > 0.05) { n.className = 'over'; n.textContent = `${f1(lay.overBy)} min past the ${endName.toLowerCase()} of ${f1(lay.referenceEnd)}.`; }
+      else if (lay.freeTail > 0.05) { n.className = 'early'; n.textContent = `${f1(lay.freeTail)} min earlier than the ${endName.toLowerCase()} of ${f1(lay.referenceEnd)}.`; }
+      else { n.className = 'dim'; n.textContent = `On the ${endName.toLowerCase()} of ${f1(lay.referenceEnd)}.`; }
+    }
+
+    // bar segments
+    segs = [];
+    state.history.forEach(h => segs.push({ from: h.from, to: h.to, it: itemById(h.id), past: true, partial: h.partial }));
+    lay.blocks.forEach(b => {
+      if (b.hidden) return;
+      const it = itemById(b.id);
+      if (b.status === 'active') segs.push({ from: act.activeSince, to: b.end, it, active: true, elapsed: now - act.activeSince });
+      else segs.push({ from: b.start, to: b.end, it });
+    });
+    if (!state.finished && lay.freeTail > 0.05) segs.push({ from: lay.projectedEnd, to: lay.projectedEnd + lay.freeTail, tail: true });
+    const lastEnd = segs.length ? Math.max(...segs.map(s => s.to)) : now;
+    const endAll = Math.max(lastEnd, lay.referenceEnd, now);
+    const span = Math.max(1, endAll - state.start);
+    const pct = v => ((v - state.start) / span * 100);
+    $('bar').innerHTML = segs.map((s, i) => {
+      const w = Math.max(0.3, (s.to - s.from) / span * 100);
+      if (s.tail) return `<div class="seg tail" style="width:${w}%" onclick="showSeg(${i})"></div>`;
+      const fill = s.active ? `<div class="fill" style="width:${Math.min(100, s.to > s.from ? (s.elapsed / (s.to - s.from)) * 100 : 100)}%"></div>` : '';
+      return `<div class="seg${s.past ? ' past' : ''}${s.active ? ' active' : ''}${s.partial ? ' partial' : ''}" style="width:${w}%;background-color:${colorFor(s.it)}" title="${esc(s.it.name)}" onclick="showSeg(${i})">${fill}</div>`;
+    }).join('');
+    // end markers: original above the bar, new end below, so they never overlap
+    let marks = '';
+    const o = pct(lay.referenceEnd), n = pct(state.finished ? endAll : lay.projectedEnd);
+    const same = Math.abs(lay.referenceEnd - (state.finished ? lay.referenceEnd : lay.projectedEnd)) < 0.05;
+    marks += `<div class="mark orig" style="left:${o}%"></div><div class="mlabel orig" style="left:${Math.min(95, Math.max(5, o))}%">${same ? 'end' : (state.mode === 'required' ? 'required' : 'suggested')} ${f1(lay.referenceEnd)}</div>`;
+    if (!same && !state.finished) marks += `<div class="mark newm" style="left:${n}%"></div><div class="mlabel newm" style="left:${Math.min(95, Math.max(5, n))}%">new end ${f1(lay.projectedEnd)}</div>`;
+    const oldMarks = document.querySelectorAll('#barWrap .mark, #barWrap .mlabel'); oldMarks.forEach(m => m.remove());
+    $('barWrap').insertAdjacentHTML('beforeend', marks);
+
+    // item list
+    $('items').innerHTML = state.items.map(it => {
+      const b = lay.blocks.find(x => x.id === it.id);
+      let line, cls = it.status;
+      if (it.status === 'done') line = `done, took ${f1(it.spent)} of ${f1(it.dur)} min`;
+      else if (it.status === 'skipped') line = 'skipped (no room)';
+      else if (b && b.hidden) { line = 'hidden (no room right now)'; cls = 'hidden'; }
+      else if (it.status === 'active') line = `now: ${f1(act.activeSince)} to ${f1(b.end)}, ${f1(now - act.activeSince)} min so far of ${f1(it.dur)} planned${it.spent ? `, ${f1(it.spent)} min spent earlier` : ''}`;
+      else line = `${f1(b.start)} to ${f1(b.end)} (${f1(b.len)} min of ${f1(it.dur - it.spent)})`;
+      const ctrl = (it.status === 'pending' || it.status === 'active')
+        ? `<div>${it.status === 'pending' ? `<button type="button" class="small" onclick="itemAct('up','${it.id}')">Up</button><button type="button" class="small" onclick="itemAct('down','${it.id}')">Down</button><button type="button" class="small" onclick="itemAct('del','${it.id}')">Delete</button>` : ''}`
+          + `<input type="number" id="dur-${it.id}" min="0" value="${it.dur}" style="width:62px;min-height:36px;"><button type="button" class="small" onclick="itemAct('dur','${it.id}')">Set minutes</button></div>` : '';
+      return `<div class="row ${cls}"><div><span class="swatch" style="background:${colorFor(it)}"></span><span class="name">${esc(it.name)}</span> <span class="dim">${typeLabel(it)}</span></div><div class="dim">${esc(line)}</div>${ctrl}</div>`;
+    }).join('');
+  }
+
+  const results = runAllTests();
+  const pass = results.filter(r => r.pass).length;
+  $('selftest').innerHTML = `Engine scenarios: <span class="${pass === results.length ? 'sel-pass' : 'sel-fail'}">${pass} of ${results.length} pass</span>`;
+  render();
+})();
+</script>
+</body>
+</html>
