@@ -4,9 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner - Stage 2c harness</title>
+<title>Phone runner - Mockup 3</title>
 <style>
-:root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#9ad07a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
+:root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 system-ui,sans-serif}
 .wrap{max-width:560px;margin:0 auto;padding:12px 12px 90px}
@@ -16,7 +16,7 @@ button,select,input{font:inherit;color:var(--txt)}
 button{min-height:48px;padding:6px 14px;margin:3px 3px 3px 0;background:var(--btn);border:0;border-radius:8px}
 button:active{filter:brightness(.8)} button:disabled{opacity:.4}
 button.pri{background:var(--accent);color:var(--on);font-weight:600}
-input,select{min-height:44px;padding:4px 8px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+input,select{max-width:100%;min-height:44px;padding:4px 8px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
 input[type=number]{width:72px}
 .seg2{display:flex;margin-bottom:8px}.seg2 button{flex:1;margin:0;border-radius:0}
 .seg2 button:first-child{border-radius:8px 0 0 8px}.seg2 button:last-child{border-radius:0 8px 8px 0}
@@ -34,11 +34,12 @@ input[type=number]{width:72px}
 .s{position:relative;height:100%;min-width:3px;overflow:hidden;border-right:1px solid var(--bg)}
 .s.past{opacity:.4}.s.now{box-shadow:inset 0 0 0 3px var(--txt)}
 .s.partial{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.35) 0 3px,transparent 3px 6px)}
-.s .fill{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.32)}
+.s .fill{position:absolute;left:0;top:0;bottom:0;background:var(--prog);opacity:.65}
+#preset{width:100%;text-overflow:ellipsis}.row input[type=checkbox]{width:26px;height:26px;margin:4px}
 .mk{position:absolute;top:0;bottom:0;width:0;pointer-events:none}
 .mk.nowm{border-left:2px solid var(--txt)}.mk.orig{border-left:2px dashed var(--mut)}.mk.endm{border-left:4px solid var(--accent)}
 .mk.endm.late{border-left-color:var(--warn)}.mk.endm.early{border-left-color:var(--brk)}
-.detail{background:var(--bg);border-radius:8px;padding:8px 10px;margin-top:8px;min-height:3.2em;font-size:.9rem}
+.detail{background:var(--bg);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:.9rem}.detail:empty{display:none}
 .legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:.8rem;color:var(--mut);margin-top:6px}
 .row{display:flex;align-items:center;gap:6px;padding:6px 0;border-top:1px solid var(--line)}
 .row:first-child{border-top:0}.row.dim{color:var(--mut)}
@@ -48,7 +49,7 @@ input[type=number]{width:72px}
 .ed{padding:8px 0 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
 .ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--mut)}
 #log{font:.8rem/1.5 monospace;white-space:pre-wrap;color:var(--mut)}
-nav{position:fixed;left:0;right:0;bottom:0;display:grid;grid-template-columns:1fr 1fr;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav{position:fixed;left:0;right:0;bottom:0;display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
 nav button{margin:0;border-radius:0;min-height:56px;background:transparent}
 nav button.on{color:var(--accent);font-weight:700;box-shadow:inset 0 3px 0 var(--accent)}
 </style>
@@ -71,7 +72,7 @@ nav button.on{color:var(--accent);font-weight:700;box-shadow:inset 0 3px 0 var(-
 </div>
 <div id="app"></div>
 </div>
-<nav id="nav" style="display:none"><button id="tRun" type="button">Run</button><button id="tEdit" type="button">Edit routine</button></nav>
+<nav id="nav" style="display:none"><button id="tRun" type="button">Run</button><button id="tEdit" type="button">Edit routine</button><button id="tTasks" type="button">Tasks</button></nav>
 <script id="engine">
 const ENGINE = (function () {
   const FLOOR_FRACTION = 0.8;   // min / est items compress to this share of their remaining time
@@ -583,18 +584,18 @@ function runAllTests() {
 </script>
 <script id="ui">
 const E = ENGINE, $ = id => document.getElementById(id);
-const CLOCK_24H = true;
+const CLOCK_24H = false;
 const fm = n => String(+n.toFixed(1));
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const clone = o => JSON.parse(JSON.stringify(o));
 const pad = n => String(n).padStart(2, '0');
 const PRESETS = {
-  test: { label: 'Test routine (60 min, two buffers)', items: [
+  test: { label: 'Test routine (60 min)', items: [
     { type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 },
     { type: 'buf', kind: 'task', name: 'Task buffer', dur: 10 }, { type: 'est', name: 'Make bed', dur: 15 },
     { type: 'buf', kind: 'break', name: 'Break buffer', dur: 5 } ] },
   nobuf: { label: 'No buffers (30 min)', items: [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }] },
-  morning: { label: 'Longer morning (75 min, has a 0-minute buffer)', items: [
+  morning: { label: 'Longer morning (75 min)', items: [
     { type: 'est', name: 'Brush teeth', dur: 5 }, { type: 'est', name: 'Make bed', dur: 5 }, { type: 'min', name: 'House cleanup', dur: 15 },
     { type: 'est', name: 'Pack lunch', dur: 15 }, { type: 'buf', kind: 'task', name: 'Habits and tasks', dur: 10 }, { type: 'min', name: 'Flashcards', dur: 15 },
     { type: 'buf', kind: 'break', name: 'Break', dur: 5 }, { type: 'est', name: 'Shoes and keys', dur: 5 }, { type: 'buf', kind: 'task', name: 'Extra buffer (0 default)', dur: 0 } ] }
@@ -645,7 +646,7 @@ function advance(dt) {
   const lay = E.layout(state, now), b = lay.blocks.find(x => x.status === 'active'), nw = now + dt, old = now;
   if (b) {
     if (b.minChimeAt !== null && b.minChimeAt > old && b.minChimeAt <= nw) { now = b.minChimeAt; addLog('single chime: total time reached the minimum'); }
-    for (let k = 0; k < 8; k++) { const t = b.end + k * 0.5; if (t > old && t <= nw) { now = t; addLog(k ? 'repeat chime (30 s later)' : 'chime: item time is up'); } }
+    for (let k = 0; k < 2; k++) { const t = b.end + k * 0.5; if (t > old && t <= nw) { now = t; addLog(k ? 'repeat chime (30 s later)' : 'chime: item time is up'); } }
   } else if (state.free && lay.referenceEnd > old && lay.referenceEnd <= nw) { now = lay.referenceEnd; addLog('end time reached'); }
   now = nw; flashMsg = ''; render();
 }
@@ -653,13 +654,11 @@ function itemAct(kind, id) {
   if (kind === 'up') apply(() => E.moveItem(state, id, -1, now)); else if (kind === 'down') apply(() => E.moveItem(state, id, 1, now));
   else if (kind === 'del') { open = null; apply(() => E.deleteItem(state, id)); }
 }
-function setF(id, f, v) { apply(() => E.updateItem(state, id, f === 'dur' ? { dur: Math.max(0, parseFloat(v) || 0) } : f === 'type' ? (v.startsWith('buf:') ? { type: 'buf', kind: v.slice(4) } : { type: v }) : { name: v })); }
-function addNew() { apply(() => E.addItem(state, { type: 'est', name: 'New item', dur: 5 }, undefined, now)); if (state) open = state.items[state.items.length - 1].id; render(); }
 const go = t => { tab = t; render(); };
 function pick(i) { const s = segs[i]; if (!s) return; let x;
-  if (s.free) x = `Saved time ${clock(s.from)} to ${clock(s.to)} (${fm(s.to - s.from)} min).`;
-  else { const it = s.it; x = `${it.name} (${typeLabel(it)}), planned ${fm(it.dur)} min. ` + (s.past ? `${s.partial ? 'Pushed forward after' : 'Done after'} ${fm(s.to - s.from)} min, ${clock(s.from)} to ${clock(s.to)}.`
-    : s.now ? `Running since ${clock(s.from)}; ${fm(s.elapsed)} min so far.` : `Planned ${clock(s.from)} to ${clock(s.to)} (${fm(s.to - s.from)} min).`); }
+  if (s.free) x = `Saved time ${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`;
+  else { const it = s.it; x = `${it.name}. ` + (s.past ? `${s.partial ? 'Pushed forward after' : 'Done after'} ${fm(s.to - s.from)} min, ${clock(s.from)} to ${clock(s.to)}.` : s.now ? `Running since ${clock(s.from)}, ${fm(s.elapsed)} min so far.` : `${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`);
+    const pl = PLANS[it.id]; if (!s.past && pl && pl.length) x += ' Suggested: ' + pl.map(t => t.name).join(', ') + '.'; }
   $('detail').textContent = x; }
 function resetRun() { if (!resetPending) { resetPending = true; render(); setTimeout(() => { resetPending = false; if (state) render(); }, 4000); return; } resetPending = false; state = null; render(); }
 
@@ -670,6 +669,7 @@ function runView(lay) {
   if (state.finished) { const last = state.history[state.history.length - 1]; cur = `<div class="card cur"><h2>Routine complete</h2><div class="name">Finished at ${clock(last ? last.to : now)}</div><div class="mut">Planned end ${clock(ref)}.</div></div>`; }
   else if (state.free) { const left = Math.max(0, ref - now);
     cur = `<div class="card cur"><span class="chip" style="background:var(--brk)">Saved time</span><div class="name">Nothing scheduled</div><div class="big">${left > 0 ? mmss(left) : 'End time reached'}</div><div class="mut">${left > 0 ? 'left until the end time. Add an item on the Edit tab, or finish.' : 'The routine can be finished now.'}</div><button class="pri" style="min-height:56px;width:100%" onclick="apply(()=>E.finishRun(state,now))">Finish routine</button></div>`; }
+  else if (act.type === 'buf' && act.kind === 'task') { cur = taskBufferCard(act, b); }
   else { const over = now - act.activeSince - act.dur, inMin = b.minChimeAt !== null;
     cur = `<div class="card cur">${chip(act)}<div class="name">${esc(act.name)}</div><div class="big">${b.len > 0 ? mmss(b.len) : '+' + fm(Math.max(0, over)) + ' min over'}</div><div class="mut">${b.len > 0 ? 'left in this block' : 'past its time'}, ends ${clock(b.end)}</div>`
       + (act.spent > 0 ? `<div class="mut">${fm(act.spent)} min already spent on it earlier (not credited to this block)</div>` : '')
@@ -686,38 +686,133 @@ function runView(lay) {
     const fill = s.now ? `<div class="fill" style="width:${Math.min(100, s.to > s.from ? s.elapsed / (s.to - s.from) * 100 : 100)}%"></div>` : '';
     return `<div class="s${s.past ? ' past' : ''}${s.now && !s.free ? ' now' : ''}${s.partial ? ' partial' : ''}" style="width:${w}%;background:${s.free ? 'var(--brk)' : colorFor(s.it)}" onclick="pick(${i})">${fill}</div>`; }).join('');
   const pe = state.finished ? ref : lay.projectedEnd, moved = Math.abs(pe - ref) > 0.5, late = pe - ref > 0.5, early = ref - pe > 0.5 && !state.free;
-  const endHtml = (moved && !state.finished && !state.free) ? `<div class="endbig ${late ? 'late' : 'early'}">New end ${clock(pe)}</div><div class="mut">was ${clock(ref)}</div>` : `<div class="endbig">End ${clock(ref)}</div><div class="mut">${state.mode === 'required' ? 'required' : 'estimated'}</div>`;
+  const endHtml = (moved && !state.finished && !state.free) ? `<div class="endbig ${late ? 'late' : 'early'}">${clock(pe)}</div><div class="mut">was ${clock(ref)}</div>` : `<div class="endbig">${clock(ref)}</div><div class="mut">${state.mode === 'required' ? 'required' : 'estimated'}</div>`;
   return cur + `<div class="card"><h2>Timeline</h2><div class="ends"><div><div class="mut">Now</div><div class="nowbig">${clock(now)}</div></div><div style="text-align:right">${endHtml}</div></div>`
     + `<div class="bar-wrap"><div class="bar">${bar}</div><div class="mk nowm" style="left:calc(6px + (100% - 12px) * ${pc(now) / 100})"></div>`
     + (moved && !state.free ? `<div class="mk orig" style="left:calc(6px + (100% - 12px) * ${pc(ref) / 100})"></div>` : '') + `<div class="mk endm${late ? ' late' : early ? ' early' : ''}" style="left:calc(6px + (100% - 12px) * ${pc(Math.min(pe, endAll)) / 100})"></div></div>`
-    + `<div class="detail" id="detail">Tap a block to see what it is.</div><div class="legend"><span><span class="chip" style="background:var(--est)">&nbsp;</span> Estimate</span><span><span class="chip" style="background:var(--min)">&nbsp;</span> Minimum</span><span><span class="chip" style="background:var(--task)">&nbsp;</span> Task buffer</span><span><span class="chip" style="background:var(--brk)">&nbsp;</span> Break buffer or saved time</span></div>`
-    + `<div class="mut" style="margin-top:6px">Dimmed: done. Bright: still to come. Light fill: time spent in the current block. Hatched: pushed forward. Thin line: now; dashed: original end.</div></div>`
+    + `<div class="detail" id="detail"></div><div class="legend"><span><span class="chip" style="background:var(--est)">&nbsp;</span> Estimate</span><span><span class="chip" style="background:var(--min)">&nbsp;</span> Minimum</span><span><span class="chip" style="background:var(--task)">&nbsp;</span> Task buffer</span><span><span class="chip" style="background:var(--brk)">&nbsp;</span> Break buffer or saved time</span></div>`
+    + `</div>`
     + `<div class="card"><h2>Fake clock</h2>${[[.5, '+30 s'], [1, '+1 min'], [5, '+5 min'], [15, '+15 min']].map(([d, l]) => `<button onclick="advance(${d})">${l}</button>`).join('')}<button onclick="(function(){if(!undo.length)return;const u=undo.pop();state=u.state;now=u.now;log=u.log;render()})()">Undo</button>`
     + `<div id="log">${esc(log.join('\n')) || 'Chime events appear here.'}</div></div>`
     + `<button onclick="resetRun()">${resetPending ? 'Confirm: discard this run?' : 'Back to setup'}</button>`;
 }
+/* ---------- tasks and habits (mockup data; scoring ported from routine18_4) ---------- */
+let DAY = 60, PLANS = {}, taskSeq = 20, habitSeq = 20;
+const TASKS = [
+  { id: 1, name: 'Email landlord about parking', dur: 5, urg: 80, imp: 3, checked: false },
+  { id: 2, name: 'Book dentist', dur: 5, urg: 30, imp: 2, checked: false },
+  { id: 3, name: 'Pay credit card', dur: 5, urg: 80, imp: 3, checked: false },
+  { id: 4, name: 'Fix bike light', dur: 15, urg: 30, imp: 2, checked: false },
+  { id: 5, name: 'Draft class outline', dur: 30, urg: 30, imp: 2, checked: false },
+  { id: 6, name: 'Plan weekend ride route', dur: 30, urg: 20, imp: 1, checked: false },
+  { id: 7, name: 'Sort receipts for taxes', dur: 60, urg: 20, imp: 1, checked: false }];
+const HABITS = [
+  { id: 1, name: 'Flashcards', dur: 10, X: 1, Y: 1, Z: 1, imp: 2, start: 55, done: [59] },
+  { id: 2, name: 'Stretch', dur: 10, X: 1, Y: 2, Z: 1, imp: 2, start: 55, done: [58] },
+  { id: 3, name: 'Water plants', dur: 5, X: 1, Y: 7, Z: 1, imp: 1, start: 40, done: [51] },
+  { id: 4, name: 'Deep clean kitchen', dur: 30, X: 1, Y: 14, Z: 1, imp: 2, start: 20, done: [30] },
+  { id: 5, name: 'Call family', dur: 15, X: 1, Y: 7, Z: 1, imp: 3, start: 40, done: [57] },
+  { id: 6, name: 'Practice guitar', dur: 15, X: 3, Y: 7, Z: 1, imp: 2, start: 55, done: [] }];
+const cl = x => Math.min(1, Math.max(0, x));
+function hState(h) {
+  const count = h.done.filter(d => d > DAY - h.Y && d <= DAY).length, n = Math.max(0, h.X - count);
+  const last = h.done.length ? Math.max(...h.done) : null, D = (last !== null ? last : h.start) + h.Y, m = Math.max(1, h.Y / h.X);
+  const lateness = Math.max(0, DAY - D), misses = Math.floor(lateness / m + 1e-9), status = misses === 0 ? 'a' : misses === 1 ? 'n' : 'i';
+  const cool = h.Z === 0 || last === null || DAY >= last + h.Z, showing = n > 0 && cool, doneToday = h.done.filter(d => d === DAY).length;
+  return { count, n, D, m, lateness, status, showing, doneToday };
+}
+function hUrg(h, s) { if (s.status === 'i') return 20; if (s.status === 'n') return 80 + 20 * cl((s.lateness - s.m + 1) / s.m);
+  return 20 + 60 * cl(1 - (s.D - (s.n - 1) * h.Z - DAY) / h.Y); }
+const hImp = (h, s) => h.imp - Math.min(s.count, h.X - 1) / h.X;
+const freq = h => h.X === 1 ? (h.Y === 1 ? 'daily' : `every ${h.Y} days`) : `${h.X} times in ${h.Y} days`;
+function taskPool() {
+  const p = TASKS.filter(t => !t.checked).map(t => ({ kind: 'task', ref: t, name: t.name, duration: t.dur, score: t.urg + t.imp * 15 }));
+  HABITS.forEach(h => { const s = hState(h); if (s.showing) p.push({ kind: 'habit', ref: h, name: h.name, duration: h.dur, score: hUrg(h, s) + hImp(h, s) * 15 }); });
+  return p;
+}
+function simTasks(pool, mom, budget) {
+  let p = pool.slice(), rem = budget; const out = [];
+  while (rem > 1e-9 && p.length) {
+    const qw = p.filter(t => t.duration <= 5).sort((a, b) => b.score - a.score);
+    const c = (qw.length && mom < 3) ? qw[0] : p.slice().sort((a, b) => b.score - a.score)[0];
+    out.push(c); p = p.filter(t => t !== c); rem -= c.duration; mom = c.duration <= 5 ? mom + 1 : 0;
+  }
+  let left = budget; const kept = out.filter((t, i) => { if (i === 0 || t.duration <= left + 1e-9) { left -= t.duration; return true; } return false; });
+  return { kept, mom: kept.length && kept[kept.length - 1].duration <= 5 ? mom : 0 };
+}
+// Fills each task buffer from the shared pool, in routine order, like the runner's task-time blocks.
+function bufferPlans(lay) {
+  let pool = taskPool(), mom = 0, prev = null; const plans = {};
+  lay.blocks.forEach(b => {
+    if (b.hidden) return;
+    if (b.type === 'buf' && b.kind === 'task') {
+      const start = prev === 'break' ? 0 : (prev === 'est' || prev === 'min') ? 3 : mom;
+      const r = simTasks(pool, start, b.len); plans[b.id] = r.kept; pool = pool.filter(t => !r.kept.includes(t)); mom = r.mom;
+    } else if (b.type === 'buf') mom = 0;
+    prev = b.type === 'buf' ? b.kind : b.type;
+  });
+  return plans;
+}
+function checkP(kind, id) { if (kind === 'task') TASKS.find(t => t.id === id).checked = true; else HABITS.find(h => h.id === id).done.push(DAY); render(); }
+function taskToggle(id, v) { TASKS.find(t => t.id === id).checked = v; render(); }
+function habitToggle(id, v) { const h = HABITS.find(x => x.id === id); if (v) h.done.push(DAY); else { const i = h.done.lastIndexOf(DAY); if (i >= 0) h.done.splice(i, 1); } render(); }
+function nextDay() { DAY++; TASKS.forEach(t => { if (t.checked) t.done = true; }); render(); }
+function addTaskUI() { const n = $('tkName').value.trim(); if (!n) return;
+  TASKS.push({ id: ++taskSeq, name: n, dur: Math.max(1, +$('tkDur').value || 15), urg: +$('tkUrg').value, imp: +$('tkImp').value, checked: false }); render(); }
+function taskBufferCard(act, b) {
+  const pl = PLANS[act.id] || [], c = pl[0];
+  return `<div class="card cur">${chip(act)}<div class="name">${c ? `<input type="checkbox" style="width:30px;height:30px;vertical-align:middle" onchange="checkP('${c.kind}',${c.ref.id})"> ${esc(c.name)}` : 'Nothing to suggest'}</div>`
+    + `<div class="big">${mmss(b.len)}</div><div class="mut">left in this buffer, ends ${clock(b.end)}${c ? ' · ' + fm(c.duration) + ' min task' : ''}</div>`
+    + (pl.length > 1 ? `<div class="mut" style="margin-top:6px">Then: ${pl.slice(1).map(t => esc(t.name)).join(', ')}</div>` : '')
+    + `<button class="pri" style="min-height:56px;width:calc(50% - 4px);margin-top:8px" onclick="apply(()=>E.complete(state,now))">Done</button><button style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.pushForward(state,now))">Push forward</button></div>`;
+}
+function tasksView() {
+  const col = { a: 'var(--task)', n: '#e6c04a', i: '#8f6b5f' };
+  const hr = HABITS.map(h => { const s = hState(h), tot = s.doneToday + (s.showing ? (h.Z === 0 ? s.n : 1) : 0); let bx = '';
+    for (let i = 0; i < tot; i++) bx += `<input type="checkbox" ${i < s.doneToday ? 'checked' : ''} onchange="habitToggle(${h.id},this.checked)">`;
+    return `<div class="row" style="border-left:3px solid ${col[s.status]};padding-left:8px"><div class="main"><div>${esc(h.name)}</div><div class="tm">${freq(h)} · ${h.dur} min · ${s.showing ? 'score ' + Math.round(hUrg(h, s) + hImp(h, s) * 15) : 'not due'}</div></div><div>${bx}</div></div>`; }).join('');
+  const tr = TASKS.filter(t => !t.done).slice().sort((a, b) => a.checked - b.checked || (b.urg + b.imp * 15) - (a.urg + a.imp * 15)).map(t =>
+    `<div class="row${t.checked ? ' dim' : ''}"><input type="checkbox" ${t.checked ? 'checked' : ''} onchange="taskToggle(${t.id},this.checked)"><div class="main"><div>${esc(t.name)}</div><div class="tm">${t.dur} min · ${t.urg >= 80 ? 'urgent' : t.urg >= 30 ? 'sooner' : 'whenever'} · score ${t.urg + t.imp * 15}</div></div></div>`).join('');
+  return `<div class="card"><h2>Habits</h2>${hr}<div class="mut" style="margin-top:6px">Day ${DAY} <button onclick="nextDay()">Next day</button></div></div>`
+    + `<div class="card"><h2>Tasks</h2>${tr}<div class="ed" style="border-top:1px solid var(--line);margin-top:6px"><label>Name<input id="tkName" style="width:150px"></label><label>Min<input id="tkDur" type="number" value="15"></label>`
+    + `<label>Urgency<select id="tkUrg"><option value="80">Urgent</option><option value="30" selected>Sooner</option><option value="20">Whenever</option></select></label><label>Importance<select id="tkImp"><option value="3">Must-do</option><option value="2" selected>Builds life</option><option value="1">No big deal</option></select></label><button class="pri" onclick="addTaskUI()">Add</button></div></div>`;
+}
+/* ---------- edit tab ---------- */
+let isNew = null;
+function setF() {}
+function tapItem(id) { open = open === id ? null : id; isNew = null; render(); }
+function saveEdit(id) {
+  const p = { name: $('edName').value.trim() || 'Item', dur: Math.max(0, parseFloat($('edDur').value) || 0) };
+  if ($('edType')) { const v = $('edType').value; Object.assign(p, v.startsWith('buf:') ? { type: 'buf', kind: v.slice(4) } : { type: v }); }
+  open = null; isNew = null; apply(() => E.updateItem(state, id, p));
+}
+function cancelEdit(id) { const n = isNew === id; open = null; isNew = null; if (n) apply(() => E.deleteItem(state, id)); else render(); }
+function addNew() { apply(() => E.addItem(state, { type: 'est', name: 'New item', dur: 5 }, undefined, now)); if (state) { open = state.items[state.items.length - 1].id; isNew = open; } render(); }
 function editView(lay) {
   const rows = state.items.map(it => { const b = lay.blocks.find(x => x.id === it.id), pend = it.status === 'pending';
     let tm; const h = [...state.history].reverse().find(x => x.id === it.id && !x.partial);
     if (it.status === 'done') tm = h ? `${clock(h.from)}-${clock(h.to)} · ${fm(h.to - h.from)} min` : 'done';
     else if (it.status === 'skipped') tm = 'skipped'; else if (b && b.hidden) tm = 'no room right now';
     else tm = it.status === 'active' ? `now, to ${clock(b.end)} · ${fm(b.len)} min left` : `${clock(b.start)}-${clock(b.end)} · ${fm(b.len)} min`;
-    const ed = open === it.id && (pend || it.status === 'active') ? `<div class="ed"><label>Name<input value="${esc(it.name)}" onchange="setF('${it.id}','name',this.value)"></label>`
-      + (pend ? `<label>Type<select onchange="setF('${it.id}','type',this.value)">${[['est', 'Estimate'], ['min', 'Minimum'], ['buf:task', 'Task buffer'], ['buf:break', 'Break buffer']].map(([v, l]) => `<option value="${v}"${(it.type === 'buf' ? 'buf:' + it.kind : it.type) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>` : '')
-      + `<label>Minutes<input type="number" min="0" value="${it.dur}" onchange="setF('${it.id}','dur',this.value)"></label>${pend ? `<button onclick="itemAct('del','${it.id}')">Delete</button>` : ''}<button onclick="open=null;render()">Close</button></div>` : '';
-    return `<div class="row${pend || it.status === 'active' ? '' : ' dim'}">${pend ? `<button class="arrow" onclick="itemAct('up','${it.id}')">Up</button><button class="arrow" onclick="itemAct('down','${it.id}')">Down</button>` : '<span style="width:92px"></span>'}`
-      + `<div class="main" onclick="open=(open==='${it.id}'?null:'${it.id}');render()"><div>${esc(it.name)} ${chip(it)}</div><div class="tm">${tm}</div></div></div>${ed}`; }).join('');
-  return `<div class="card"><h2>${state.mode === 'required' ? 'Required end ' + clock(lay.referenceEnd) : 'Suggested end ' + clock(lay.referenceEnd)}</h2><div class="mut">Up on the first waiting item is the same as Push forward. Edits apply to the run in progress.</div></div>`
-    + `<div class="card"><h2>Items</h2>${rows}<button onclick="addNew()" style="margin-top:8px"${state.finished ? ' disabled' : ''}>+ Add item</button></div>`;
+    const pl = PLANS[it.id]; if (pl && pl.length) tm += ' · ' + pl.map(t => t.name).join(', ');
+    const ed = open === it.id && (pend || it.status === 'active') ? `<div class="ed"><label>Name<input id="edName" value="${esc(it.name)}"></label>`
+      + (pend ? `<label>Type<select id="edType">${[['est', 'Estimate'], ['min', 'Minimum'], ['buf:task', 'Task buffer'], ['buf:break', 'Break buffer']].map(([v, l]) => `<option value="${v}"${(it.type === 'buf' ? 'buf:' + it.kind : it.type) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>` : '')
+      + `<label>Minutes<input id="edDur" type="number" min="0" value="${it.dur}"></label><button class="pri" onclick="saveEdit('${it.id}')">Save</button><button onclick="cancelEdit('${it.id}')">Cancel</button>${pend ? `<button onclick="itemAct('del','${it.id}')">Delete</button>` : ''}</div>` : '';
+    return `<div class="row${pend || it.status === 'active' ? '' : ' dim'}">${pend ? `<button class="arrow" aria-label="Move up" onclick="itemAct('up','${it.id}')">&#9650;</button><button class="arrow" aria-label="Move down" onclick="itemAct('down','${it.id}')">&#9660;</button>` : '<span style="width:92px"></span>'}`
+      + `<div class="main" onclick="tapItem('${it.id}')"><div>${esc(it.name)} ${chip(it)}</div><div class="tm">${tm}</div></div></div>${ed}`; }).join('');
+  const pe = lay.projectedEnd, ref = lay.referenceEnd, differs = !state.finished && !state.free && Math.abs(pe - ref) > 0.5;
+  return `<div class="card"><h2>Items</h2>${rows}<button onclick="addNew()" style="margin-top:8px"${state.finished ? ' disabled' : ''}>+ Add item</button></div>`
+    + `<div class="card"><h2>${state.mode === 'required' ? 'Required' : 'Suggested'} end ${clock(ref)}</h2>${differs ? `<div style="font-size:1.05rem">Expected end ${clock(pe)}</div>` : ''}</div>`;
 }
+
 function render() {
   $('setup').style.display = state ? 'none' : 'block'; $('nav').style.display = state ? 'grid' : 'none';
   if (!state) { $('app').innerHTML = ''; return; }
-  const lay = E.layout(state, now);
-  $('tRun').className = tab === 'run' ? 'on' : ''; $('tEdit').className = tab === 'edit' ? 'on' : '';
-  $('app').innerHTML = (flashMsg ? `<div class="card late">${esc(flashMsg)}</div>` : '') + (tab === 'run' ? runView(lay) : editView(lay)); flashMsg = '';
+  const lay = E.layout(state, now); PLANS = bufferPlans(lay);
+  $('tRun').className = tab === 'run' ? 'on' : ''; $('tEdit').className = tab === 'edit' ? 'on' : ''; $('tTasks').className = tab === 'tasks' ? 'on' : '';
+  $('app').innerHTML = (flashMsg ? `<div class="card late">${esc(flashMsg)}</div>` : '') + (tab === 'run' ? runView(lay) : tab === 'edit' ? editView(lay) : tasksView()); flashMsg = '';
 }
-$('tRun').onclick = () => go('run'); $('tEdit').onclick = () => go('edit');
+$('tRun').onclick = () => go('run'); $('tEdit').onclick = () => go('edit'); $('tTasks').onclick = () => go('tasks');
 { const r = runAllTests(), p = r.filter(x => x.pass).length; $('selftest').textContent = `Engine scenarios: ${p} of ${r.length} pass`; }
 </script>
 </body>
