@@ -1,0 +1,1045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>Phone runner v1.0</title>
+<style>
+:root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.4 system-ui,sans-serif}
+.wrap{max-width:560px;margin:0 auto;padding:12px 12px 90px}
+h2{font-size:1.05rem;margin:0 0 8px;color:var(--accent)}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
+button,select,input{font:inherit;color:var(--txt)}
+button{min-height:48px;padding:6px 14px;margin:3px 3px 3px 0;background:var(--btn);border:0;border-radius:8px}
+button:active{filter:brightness(.8)} button:disabled{opacity:.4}
+button.pri{background:var(--accent);color:var(--on);font-weight:600}
+input,select{max-width:100%;min-height:44px;padding:4px 8px;background:var(--bg);border:1px solid var(--line);border-radius:6px}
+input[type=number]{width:72px}
+.seg2{display:flex;margin-bottom:8px}.seg2 button{flex:1;margin:0;border-radius:0}
+.seg2 button:first-child{border-radius:8px 0 0 8px}.seg2 button:last-child{border-radius:0 8px 8px 0}
+.seg2 button.on{background:var(--accent);color:var(--on);font-weight:600}
+.mut{color:var(--mut);font-size:.85rem}
+.chip{display:inline-block;padding:0 8px;border-radius:10px;font-size:.75rem;color:#0c1208;vertical-align:middle}
+.cur{border:2px solid var(--accent)}
+.name{font-size:1.7rem;font-weight:700;line-height:1.2;margin:4px 0}
+.big{font-size:3rem;font-weight:800;line-height:1.1}
+.ends{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:8px}
+.nowbig{font-size:1.4rem;font-weight:600}.endbig{font-size:2.1rem;font-weight:800;line-height:1.1;text-align:right}
+.late{color:var(--warn)}.early{color:var(--brk)}
+.bar-wrap{position:relative;padding:4px 6px;margin:4px 0 8px}
+.bar{display:flex;height:48px;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.s{position:relative;height:100%;min-width:3px;overflow:hidden;border-right:1px solid var(--bg)}
+.s.past{opacity:.4}.s.now{box-shadow:inset 0 0 0 3px var(--txt)}
+.s.partial{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.35) 0 3px,transparent 3px 6px)}
+.s .fill{position:absolute;left:0;top:0;bottom:0;background:#000;opacity:.3}
+.s.grey{background:repeating-linear-gradient(135deg,#3a3d40 0 4px,#2c2f32 4px 8px)!important}.s.rem{opacity:.55}
+#preset{width:100%;text-overflow:ellipsis}.row input[type=checkbox]{width:26px;height:26px;margin:4px}
+.mk{position:absolute;top:0;bottom:0;width:0;pointer-events:none}
+.mk.nowm{border-left:2px solid var(--txt)}.mk.orig{border-left:2px dashed var(--mut)}.mk.endm{border-left:4px solid var(--accent)}
+.mk.endm.late{border-left-color:var(--warn)}.mk.endm.early{border-left-color:var(--brk)}
+.detail{background:var(--bg);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:.9rem}.detail:empty{display:none}
+.legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:.8rem;color:var(--mut);margin-top:6px}
+.row{display:flex;align-items:center;gap:6px;padding:6px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}.row.dim{color:var(--mut)}
+.row .main{flex:1;min-width:0;min-height:44px;display:flex;flex-direction:column;justify-content:center}
+.row .tm{font-size:.85rem;color:var(--mut)}
+.arrow{width:44px;min-height:44px;margin:0;padding:0}
+.ed{padding:8px 0 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
+.ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--mut)}
+#log{font:.8rem/1.5 monospace;white-space:pre-wrap;color:var(--mut)}
+nav{position:fixed;left:0;right:0;bottom:0;display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{margin:0;border-radius:0;min-height:56px;background:transparent}
+nav button.on{color:var(--accent);font-weight:700;box-shadow:inset 0 3px 0 var(--accent)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<div id="selftest" class="mut"></div>
+<div id="setup" class="card">
+  <h2>Start a run</h2>
+  <label>Routine <select id="preset"></select></label><br>
+  <label>Start time <input type="time" id="startT"></label>
+  <div class="seg2" style="margin-top:8px"><button id="mReq" type="button">Required end time</button><button id="mOpen" type="button">Open-ended</button></div>
+  <div id="reqBox">
+    <label>Length <input type="number" id="lenH" min="0"> hr <input type="number" id="lenM" min="0"> min</label><br>
+    <label>Ends at <input type="time" id="endT"></label>
+  </div>
+  <div id="openBox" class="mut"></div>
+  <button class="pri" type="button" id="startBtn" style="margin-top:8px">Start run</button>
+  <div id="setupErr" class="late"></div>
+  <hr style="border:0;border-top:1px solid var(--line);margin:12px 0"><h2>Backup</h2>
+  <button type="button" onclick="exportAll()">Copy export</button> <input id="impBox" placeholder="Paste an export here"> <button type="button" onclick="importAll()">Import</button>
+  <div class="mut" id="backupMsg"></div><textarea id="expFb" readonly style="display:none;width:100%;height:80px"></textarea>
+</div>
+<div id="app"></div>
+</div>
+<nav id="nav" style="display:none"><button id="tRun" type="button">Run</button><button id="tEdit" type="button">Edit routine</button><button id="tTasks" type="button">Tasks</button></nav>
+<script id="engine">
+const ENGINE = (function () {
+  const FLOOR_FRACTION = 0.8;   // min / est items compress to this share of their remaining time
+  const GROW_WEIGHT_MIN = 5;    // buffers grow in proportion to max(default, this)
+  const BUFFER_MIN_SHOW = 1;    // a buffer shorter than this (minutes) is not shown
+  const EPS = 1e-9;
+
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const sum = (arr, f) => arr.reduce((t, x) => t + f(x), 0);
+  const isBuf = it => it.type === 'buf';
+  const spentOf = (it, now) => it.spent + (it.status === 'active' ? Math.max(0, now - it.activeSince) : 0);
+  // A block always gets its full planned length: time spent in earlier (pushed-forward) blocks is not credited.
+  const baseRemaining = (it, now) => Math.max(0, it.dur - (it.status === 'active' ? Math.max(0, now - it.activeSince) : 0));
+  const totalPlanned = s => sum(s.items, i => i.dur);
+  // Required mode: the fixed end. Open mode: start + everything planned (moves when items are added or removed).
+  const referenceEnd = s => s.mode === 'required' ? s.requiredEnd : s.start + totalPlanned(s);
+  const activeItem = s => s.items.find(i => i.status === 'active') || null;
+  const byId = (s, id) => s.items.find(i => i.id === id);
+
+  function makeItem(s, spec) {
+    s.nextId = (s.nextId || 0) + 1;
+    const type = spec.type;
+    return {
+      id: 'i' + s.nextId, type, kind: type === 'buf' ? (spec.kind || 'task') : 'work',
+      name: spec.name, dur: spec.dur, status: 'pending', spent: 0, activeSince: null, lockedEnd: null
+    };
+  }
+
+  function createRun(cfg) {
+    const s = { mode: cfg.mode, start: cfg.start, requiredEnd: cfg.mode === 'required' ? cfg.requiredEnd : null,
+                items: [], history: [], nextId: 0, finished: false, free: null };
+    cfg.items.forEach(spec => s.items.push(makeItem(s, spec)));
+    return activateNext(s, cfg.start);
+  }
+
+  /* ---------- layout ----------
+     Lays out every not-yet-finished item from `now`.
+     Required: slack = (end - now) - work - buffer defaults.
+       slack >= 0: buffers grow by weight max(default, 5), no cap. No buffers: saved time (free tail).
+       slack <  0: buffers shrink in proportion to default, then items compress to 80%,
+                   then the projected end runs past the required end.
+     Open: same, except items never compress; past the buffers the projected end moves later.
+     Buffers that would be shorter than BUFFER_MIN_SHOW disappear (the active one never does). */
+  function layout(s, now) {
+    const live = s.items.filter(i => i.status === 'pending' || i.status === 'active');
+    const info = live.map(it => ({ it, base: baseRemaining(it, now), len: 0, hidden: false, live: true }));
+    const fx = info.find(x => x.it.status === 'active' && x.it.lockedEnd !== null && x.it.lockedEnd !== undefined);
+    if (fx) { fx.base = Math.max(0, fx.it.lockedEnd - now); fx.len = fx.base; }
+    const W = info.filter(x => x !== fx && !isBuf(x.it));
+    const B = info.filter(x => x !== fx && isBuf(x.it));
+    const Wsum = sum(W, x => x.base);
+    const ref = referenceEnd(s);
+    const A = ref - now - (fx ? fx.len : 0);
+
+    for (;;) {
+      const liveB = B.filter(x => x.live);
+      const Bdef = sum(liveB, x => x.base);
+      const slack = A - Wsum - Bdef;
+      W.forEach(x => { x.len = x.base; });
+      if (slack >= 0) {
+        if (liveB.length) {
+          const wts = liveB.map(x => Math.max(x.base, GROW_WEIGHT_MIN));
+          const wsum = sum(wts, w => w);
+          liveB.forEach((x, i) => { x.len = x.base + slack * wts[i] / wsum; });
+        }
+      } else {
+        const deficit = -slack;
+        if (deficit <= Bdef + EPS) {
+          liveB.forEach(x => { x.len = Bdef > EPS ? x.base * (1 - deficit / Bdef) : 0; });
+        } else {
+          liveB.forEach(x => { x.len = 0; });
+          const d2 = deficit - Bdef;
+          if (s.mode === 'required') {
+            const comp = sum(W, x => (1 - FLOOR_FRACTION) * x.base);
+            if (comp > EPS) {
+              const f = Math.min(1, d2 / comp);
+              W.forEach(x => { x.len = x.base - (1 - FLOOR_FRACTION) * x.base * f; });
+            }
+          }
+        }
+      }
+      const tiny = liveB.filter(x => x.len < BUFFER_MIN_SHOW && x.it.status !== 'active');
+      if (!tiny.length) break;
+      tiny.forEach(x => { x.live = false; x.len = 0; x.hidden = true; });
+    }
+
+    let t = now;
+    const blocks = info.map(x => {
+      const start = t; t += x.len;
+      const blk = { id: x.it.id, name: x.it.name, type: x.it.type, kind: x.it.kind, status: x.it.status,
+               start, end: t, len: x.len, base: x.base, hidden: x.hidden };
+      // Single chime when TOTAL time on a minimum item reaches its minimum (null if already reached)
+      if (x.it.status === 'active') blk.minChimeAt = (x.it.type === 'min' && x.it.spent < x.it.dur - EPS) ? x.it.activeSince + (x.it.dur - x.it.spent) : null;
+      return blk;
+    });
+    const projectedEnd = t;
+    return {
+      mode: s.mode, now, blocks, projectedEnd, referenceEnd: ref,
+      overBy: Math.max(0, projectedEnd - ref),
+      freeTail: Math.max(0, ref - projectedEnd),
+      history: s.history.slice(),
+      freeBlock: s.free ? { start: s.free.since, end: Math.max(ref, now) } : null,
+      endReached: now >= ref - 0.05
+    };
+  }
+
+  // Fixes the active block's end at the moment of an event; only events change it.
+  function relock(s, now) {
+    const a = activeItem(s); if (!a || now === undefined) return s;
+    a.lockedEnd = null;
+    const b = layout(s, now).blocks.find(x => x.id === a.id);
+    a.lockedEnd = now + (b ? b.len : a.dur);
+    return s;
+  }
+
+  /* ---------- events (each returns { state, error }) ---------- */
+  function activateNext(s, now) {
+    const lay = layout(s, now);
+    let activated = false;
+    for (const b of lay.blocks) {
+      const it = byId(s, b.id);
+      if (b.hidden) { it.status = 'skipped'; continue; }     // hidden buffers up to the next visible item are passed over
+      it.status = 'active'; it.activeSince = now; relock(s, now); activated = true; break;
+    }
+    if (!activated) {
+      s.items.forEach(i => { if (i.status === 'pending') i.status = 'skipped'; });
+      if (now < referenceEnd(s) - 0.05) s.free = { since: now };   // saved time keeps running until exit or the end time
+      else s.finished = true;
+    }
+    return s;
+  }
+
+  function finishRun(state, now) {
+    const s = clone(state);
+    if (!s.free) return { state: s, error: 'not in saved time' };
+    s.history.push({ free: true, name: 'Saved time', from: s.free.since, to: now });
+    s.free = null; s.finished = true;
+    return { state: s, error: null };
+  }
+
+  function complete(state, now) {
+    const s = clone(state);
+    const act = activeItem(s);
+    if (!act) return { state: s, error: 'no active item' };
+    act.spent = spentOf(act, now);
+    s.history.push({ id: act.id, name: act.name, from: act.activeSince, to: now, partial: false });
+    act.status = 'done'; act.activeSince = null;
+    activateNext(s, now);
+    return { state: s, error: null };
+  }
+
+  // Skips the active item one position, for this run only. Time already spent stays on the
+  // item (and on the timeline as a partial block) and counts against it when it comes up again.
+  function pushForward(state, now) {
+    const s = clone(state);
+    const idx = s.items.findIndex(i => i.status === 'active');
+    if (idx < 0) return { state: s, error: 'no active item' };
+    const hidden = new Set(layout(s, now).blocks.filter(b => b.hidden).map(b => b.id));
+    let j = -1;
+    for (let k = idx + 1; k < s.items.length; k++) {
+      if (s.items[k].status === 'pending' && !hidden.has(s.items[k].id)) { j = k; break; }
+    }
+    if (j < 0) return { state: s, error: 'nothing to push past' };
+    const act = s.items[idx];
+    act.spent = spentOf(act, now);
+    s.history.push({ id: act.id, name: act.name, from: act.activeSince, to: now, partial: true });
+    act.status = 'pending'; act.activeSince = null;
+    for (let k = idx + 1; k < j; k++) if (s.items[k].status === 'pending') s.items[k].status = 'skipped';
+    s.items.splice(idx, 1);          // target is now at j - 1
+    s.items.splice(j, 0, act);       // pushed item lands right after it
+    const target = s.items[j - 1];
+    target.status = 'active'; target.activeSince = now; relock(s, now);
+    return { state: s, error: null };
+  }
+
+  /* ---------- mid-run edits: only items that have not started ---------- */
+  function frontier(s) {
+    const k = s.items.findIndex(i => i.status === 'pending');
+    return k < 0 ? s.items.length : k;
+  }
+  function addItem(state, spec, atIndex, now) {
+    const s = clone(state);
+    if (s.finished) return { state: s, error: 'run finished' };
+    const idx = Math.max(atIndex === undefined ? s.items.length : atIndex, frontier(s));
+    s.items.splice(Math.min(idx, s.items.length), 0, makeItem(s, spec));
+    if (s.free) { s.history.push({ free: true, name: 'Saved time', from: s.free.since, to: now }); s.free = null; activateNext(s, now); } else relock(s, now);
+    return { state: s, error: null };
+  }
+  function deleteItem(state, id, now) {
+    const s = clone(state);
+    const it = byId(s, id);
+    if (!it) return { state: s, error: 'no such item' };
+    if (it.status !== 'pending') return { state: s, error: 'only items not yet started can be deleted' };
+    s.items = s.items.filter(i => i.id !== id); relock(s, now);
+    return { state: s, error: null };
+  }
+  function moveItem(state, id, dir, now) {
+    const s = clone(state);
+    const k = s.items.findIndex(i => i.id === id);
+    if (k < 0) return { state: s, error: 'no such item' };
+    if (s.items[k].status !== 'pending') return { state: s, error: 'only items not yet started can be moved' };
+    const k2 = k + (dir < 0 ? -1 : 1);
+    if (k2 >= 0 && s.items[k2] && s.items[k2].status === 'active') {   // Up on the first waiting item = push forward
+      if (dir >= 0 || now === undefined) return { state: s, error: 'cannot move there' };
+      const r = pushForward(state, now);
+      return (r.error || activeItem(r.state).id !== id) ? { state: s, error: r.error || 'cannot move there' } : r;
+    }
+    if (k2 < 0 || k2 >= s.items.length || s.items[k2].status !== 'pending') return { state: s, error: 'cannot move there' };
+    [s.items[k], s.items[k2]] = [s.items[k2], s.items[k]]; relock(s, now);
+    return { state: s, error: null };
+  }
+  // patch may hold name, dur; type/kind only for items not yet started. The active item keeps its time spent.
+  function updateItem(state, id, patch, now) {
+    const s = clone(state);
+    const it = byId(s, id);
+    if (!it) return { state: s, error: 'no such item' };
+    if (it.status !== 'pending' && it.status !== 'active') return { state: s, error: 'finished items cannot be edited' };
+    if (patch.name !== undefined) it.name = patch.name;
+    if (patch.dur !== undefined) it.dur = patch.dur;
+    if (it.status === 'pending') {
+      if (patch.type !== undefined) it.type = patch.type;
+      if (patch.kind !== undefined) it.kind = patch.kind;
+      it.kind = it.type === 'buf' ? (it.kind === 'break' ? 'break' : 'task') : 'work';
+    }
+    relock(s, now);
+    return { state: s, error: null };
+  }
+
+  /* ---------- readable dump ---------- */
+  const f1 = n => (Math.round(n * 10) / 10).toFixed(1);
+  function describe(lay, s) {
+    const lines = [];
+    (s ? s.history : lay.history).forEach(h => lines.push(`  past   ${h.name}: ${f1(h.from)} to ${f1(h.to)}${h.partial ? ' (partial, pushed)' : ''}`));
+    lay.blocks.forEach(b => {
+      if (b.hidden) { lines.push(`  hidden ${b.name} (${b.kind})`); return; }
+      lines.push(`  ${b.status === 'active' ? 'now   ' : 'next  '} ${b.name}${b.type === 'buf' ? ' [' + b.kind + ' buffer]' : ''}: ${f1(b.start)} to ${f1(b.end)} (${f1(b.len)} min)`);
+    });
+    lines.push(`  projected end ${f1(lay.projectedEnd)}, reference end ${f1(lay.referenceEnd)}` +
+      (lay.overBy > 1e-6 ? `, OVER by ${f1(lay.overBy)}` : '') + (lay.freeTail > 1e-6 ? `, saved tail ${f1(lay.freeTail)}` : ''));
+    return lines.join('\n');
+  }
+
+  return { createRun, layout, complete, finishRun, pushForward, addItem, deleteItem, moveItem, updateItem,
+           activeItem, describe, constants: { FLOOR_FRACTION, GROW_WEIGHT_MIN, BUFFER_MIN_SHOW } };
+})();
+</script>
+<script id="tests">
+function runAllTests() {
+  const E = ENGINE;
+  const results = [];
+  const f2 = n => (Math.round(n * 100) / 100).toString();
+
+  function scenario(title, desc, fn) {
+    const checks = [], notes = [];
+    const c = {
+      near(label, got, want, tol) { checks.push({ label, got: f2(got), want: f2(want), pass: Math.abs(got - want) <= (tol === undefined ? 0.01 : tol) }); },
+      eq(label, got, want) { checks.push({ label, got: String(got), want: String(want), pass: got === want }); },
+      ok(label, cond) { checks.push({ label, got: String(!!cond), want: 'true', pass: !!cond }); },
+      note(t) { notes.push(t); }
+    };
+    try { fn(c); } catch (e) { checks.push({ label: 'scenario threw an error', got: String(e && e.message || e), want: 'no error', pass: false }); }
+    results.push({ title, desc, checks, notes, pass: checks.every(x => x.pass) });
+  }
+
+  // 60 minutes planned: Cleanup 10 (min), Pack lunch 20 (est), task buffer 10, Make bed 15 (est), break buffer 5.
+  const routineR = () => [
+    { type: 'min', name: 'Cleanup', dur: 10 },
+    { type: 'est', name: 'Pack lunch', dur: 20 },
+    { type: 'buf', kind: 'task', name: 'Task buffer', dur: 10 },
+    { type: 'est', name: 'Make bed', dur: 15 },
+    { type: 'buf', kind: 'break', name: 'Break buffer', dur: 5 }
+  ];
+  const L = (lay, name) => lay.blocks.find(b => b.name === name);
+  const names = s => s.items.map(i => i.name + (i.status === 'pending' ? '' : ':' + i.status)).join(' | ');
+  const req = () => E.createRun({ items: routineR(), mode: 'required', start: 0, requiredEnd: 60 });
+  const open = () => E.createRun({ items: routineR(), mode: 'open', start: 0 });
+  const done = (s, t) => E.complete(s, t).state;
+
+  scenario('1. On time, required end',
+    'Everything finishes exactly as planned: items and buffers stay at their defaults and the end is 60.', c => {
+    let s = req(), lay = E.layout(s, 0);
+    c.eq('first item is active', E.activeItem(s).name, 'Cleanup');
+    c.near('projected end at start', lay.projectedEnd, 60);
+    s = done(s, 10); lay = E.layout(s, 10);
+    c.eq('Pack lunch is active', E.activeItem(s).name, 'Pack lunch');
+    c.near('Pack lunch length', L(lay, 'Pack lunch').len, 20);
+    c.near('task buffer', L(lay, 'Task buffer').len, 10);
+    c.near('break buffer', L(lay, 'Break buffer').len, 5);
+    c.near('projected end', lay.projectedEnd, 60);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('2. Early finish, required end, with buffers',
+    'Cleanup done 4 min early. The 4 spare minutes go to the buffers, weighted 10 : 5.', c => {
+    let s = done(req(), 6); const lay = E.layout(s, 6);
+    c.near('Pack lunch stays at 20', L(lay, 'Pack lunch').len, 20);
+    c.near('Make bed stays at 15', L(lay, 'Make bed').len, 15);
+    c.near('task buffer grows', L(lay, 'Task buffer').len, 10 + 4 * 10 / 15);
+    c.near('break buffer grows', L(lay, 'Break buffer').len, 5 + 4 * 5 / 15);
+    c.near('projected end', lay.projectedEnd, 60);
+    c.near('no saved tail', lay.freeTail, 0);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('3. Small overrun absorbed by buffers only',
+    'Cleanup done 4 min late. Buffers shrink in proportion to their defaults; items stay full length.', c => {
+    let s = done(req(), 14); const lay = E.layout(s, 14);
+    c.near('Pack lunch stays at 20', L(lay, 'Pack lunch').len, 20);
+    c.near('task buffer', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
+    c.near('break buffer', L(lay, 'Break buffer').len, 5 * (1 - 4 / 15));
+    c.near('projected end', lay.projectedEnd, 60);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('4. Bigger overrun: buffers vanish, items compress',
+    'Cleanup done 20 min late. Both buffers disappear and the two estimate items shrink, but stay above 80%.', c => {
+    let s = done(req(), 30); const lay = E.layout(s, 30);
+    c.ok('task buffer hidden', L(lay, 'Task buffer').hidden);
+    c.ok('break buffer hidden', L(lay, 'Break buffer').hidden);
+    c.near('Pack lunch', L(lay, 'Pack lunch').len, 20 - 4 * (5 / 7));
+    c.near('Make bed', L(lay, 'Make bed').len, 15 - 3 * (5 / 7));
+    c.ok('Pack lunch at least 80%', L(lay, 'Pack lunch').len >= 16 - 1e-9);
+    c.near('projected end', lay.projectedEnd, 60);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('5. Overrun too big even for the 80% floors',
+    'Cleanup done 30 min late. Items sit at their floors and the projected end runs past the required end.', c => {
+    let s = done(req(), 40); const lay = E.layout(s, 40);
+    c.near('Pack lunch at floor', L(lay, 'Pack lunch').len, 16);
+    c.near('Make bed at floor', L(lay, 'Make bed').len, 12);
+    c.near('over by', lay.overBy, 8);
+    c.near('projected end', lay.projectedEnd, 68);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('6. Late, then caught up (full reversal), required end',
+    'Cleanup 4 late, then Pack lunch 4 early. Buffers return exactly to their defaults.', c => {
+    let s = done(req(), 14);
+    let lay = E.layout(s, 14);
+    c.near('after the delay, task buffer is shrunk', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
+    s = done(s, 30); lay = E.layout(s, 30);
+    c.near('task buffer back to default', L(lay, 'Task buffer').len, 10);
+    c.near('break buffer back to default', L(lay, 'Break buffer').len, 5);
+    c.near('Make bed full length', L(lay, 'Make bed').len, 15);
+    c.near('projected end', lay.projectedEnd, 60);
+    c.note(E.describe(lay, s));
+  });
+
+  scenario('7. Open-ended: late, then catching up',
+    'Open end, suggested 60. Buffers shrink first; past that the end moves later; catching up brings the end back, then buffers regrow.', c => {
+    let s = open(), lay = E.layout(s, 0);
+    c.near('suggested end', lay.referenceEnd, 60);
+    let a = done(s, 14); lay = E.layout(a, 14);
+    c.near('4 late: end unchanged', lay.projectedEnd, 60);
+    c.near('4 late: task buffer shrinks', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
+    a = done(s, 30); lay = E.layout(a, 30);
+    c.ok('20 late: buffers gone', L(lay, 'Task buffer').hidden && L(lay, 'Break buffer').hidden);
+    c.near('20 late: items not compressed', L(lay, 'Pack lunch').len, 20);
+    c.near('20 late: end moves later', lay.projectedEnd, 65);
+    c.near('20 late: over by', lay.overBy, 5);
+    // Pack lunch then finishes at 40 (10 min early): the end returns to 60 and buffers partly return.
+    let b = done(a, 40); lay = E.layout(b, 40);
+    c.near('then 10 early: end back to original', lay.projectedEnd, 60);
+    c.near('then 10 early: task buffer partly back', L(lay, 'Task buffer').len, 10 * (1 - 10 / 15));
+    // Ahead of schedule from the start: buffers grow, end stays 60.
+    const e = done(s, 5); lay = E.layout(e, 5);
+    c.near('5 early: task buffer grows', L(lay, 'Task buffer').len, 10 + 5 * 10 / 15);
+    c.near('5 early: end stays', lay.projectedEnd, 60);
+    c.note(E.describe(lay, e));
+  });
+
+  scenario('8. No buffers, ahead of schedule',
+    'Two items, 30 planned. Cleanup done 4 early: the end moves earlier and the saved time is shown at the end.', c => {
+    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
+    ['required', 'open'].forEach(mode => {
+      const s = E.createRun({ items, mode, start: 0, requiredEnd: 30 });
+      const t = done(s, 6), lay = E.layout(t, 6);
+      c.near(mode + ': projected end moves earlier', lay.projectedEnd, 26);
+      c.near(mode + ': saved tail', lay.freeTail, 4);
+      c.near(mode + ': reference end', lay.referenceEnd, 30);
+      if (mode === 'open') c.note(E.describe(lay, t));
+    });
+  });
+
+  scenario('9. Push forward',
+    'Skip the current item for this run only. Time spent stays on it and counts when it returns.', c => {
+    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }, { type: 'est', name: 'Make bed', dur: 15 }];
+    let s = E.createRun({ items, mode: 'open', start: 0 });
+    let r = E.pushForward(s, 4); s = r.state;
+    c.eq('no error', r.error, null);
+    c.eq('Pack lunch now active', E.activeItem(s).name, 'Pack lunch');
+    c.eq('order', names(s), 'Pack lunch:active | Cleanup | Make bed');
+    c.eq('partial block recorded', s.history.length === 1 && s.history[0].partial && s.history[0].from === 0 && s.history[0].to === 4, true);
+    let lay = E.layout(s, 4);
+    c.near('Cleanup returns at full length', L(lay, 'Cleanup').len, 10);
+    c.near('Cleanup starts after Pack lunch', L(lay, 'Cleanup').start, 24);
+    c.near('the 4 spent minutes are not credited: end 4 later', lay.projectedEnd, 49);
+    c.note(E.describe(lay, s));
+    // single item: nothing to push past
+    const one = E.createRun({ items: [{ type: 'min', name: 'Only', dur: 5 }], mode: 'open', start: 0 });
+    c.eq('nothing to push past', E.pushForward(one, 1).error, 'nothing to push past');
+  });
+
+  scenario('9b. Push forward passes over a hidden buffer',
+    'A buffer that has no room is not shown, so push forward swaps with the next visible item instead.', c => {
+    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'buf', kind: 'task', name: 'Task buffer', dur: 5 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
+    let s = E.createRun({ items, mode: 'required', start: 0, requiredEnd: 30 });
+    c.ok('buffer hidden at start', E.layout(s, 0).blocks.find(b => b.name === 'Task buffer').hidden);
+    const r = E.pushForward(s, 2); s = r.state;
+    c.eq('no error', r.error, null);
+    c.eq('Pack lunch active', E.activeItem(s).name, 'Pack lunch');
+    c.eq('order and statuses', names(s), 'Task buffer:skipped | Pack lunch:active | Cleanup');
+    c.note(E.describe(E.layout(s, 2), s));
+  });
+
+  scenario('10. Mid-run edits, required end',
+    'After Cleanup is done at 6 (Pack lunch active): add, delete, move, update. Required end stays 60.', c => {
+    let s = done(req(), 6);
+    let r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 });
+    let lay = E.layout(r.state, 6);
+    c.near('add 5 min item: task buffer shrinks', L(lay, 'Task buffer').len, 10 * 14 / 15);
+    c.near('add 5 min item: break buffer shrinks', L(lay, 'Break buffer').len, 5 * 14 / 15);
+    c.near('add 5 min item: end stays 60', lay.projectedEnd, 60);
+
+    r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 }, 0);
+    c.eq('add at index 0 lands after the active item', names(r.state), 'Cleanup:done | Pack lunch:active | Trash | Task buffer | Make bed | Break buffer');
+
+    const bed = s.items.find(i => i.name === 'Make bed');
+    r = E.deleteItem(s, bed.id); lay = E.layout(r.state, 6);
+    c.near('delete Make bed: task buffer grows', L(lay, 'Task buffer').len, 10 + 19 * 10 / 15);
+    c.near('delete Make bed: break buffer grows', L(lay, 'Break buffer').len, 5 + 19 * 5 / 15);
+
+    c.ok('cannot delete a finished item', E.deleteItem(s, s.items[0].id).error !== null);
+    c.ok('cannot delete the active item', E.deleteItem(s, E.activeItem(s).id).error !== null);
+
+    r = E.moveItem(s, bed.id, -1);
+    c.eq('move Make bed up past the task buffer', names(r.state), 'Cleanup:done | Pack lunch:active | Make bed | Task buffer | Break buffer');
+    const pu = E.moveItem(r.state, bed.id, -1, 6);
+    c.eq('Up on the first waiting item acts as push forward', pu.error === null && E.activeItem(pu.state).name === 'Make bed', true);
+    c.ok('cannot move the active item', E.moveItem(s, E.activeItem(s).id, 1).error !== null);
+
+    r = E.updateItem(s, E.activeItem(s).id, { dur: 25 }, 6); lay = E.layout(r.state, 6);
+    c.near('lengthen the active item by 5: Pack lunch remaining', L(lay, 'Pack lunch').len, 25);
+    c.near('lengthen the active item by 5: task buffer shrinks', L(lay, 'Task buffer').len, 10 * 14 / 15);
+    c.near('lengthen the active item by 5: end stays 60', lay.projectedEnd, 60);
+  });
+
+  scenario('10b. Mid-run edits, open end',
+    'Adding an item moves the suggested end later; deleting moves it earlier.', c => {
+    let s = done(open(), 6);
+    let r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 });
+    let lay = E.layout(r.state, 6);
+    c.near('suggested end moves to 65', lay.referenceEnd, 65);
+    c.near('projected end', lay.projectedEnd, 65);
+    c.near('task buffer: 4 early minutes still in the buffers', L(lay, 'Task buffer').len, 10 + 4 * 10 / 15);
+    const bed = s.items.find(i => i.name === 'Make bed');
+    r = E.deleteItem(s, bed.id); lay = E.layout(r.state, 6);
+    c.near('delete 15 min item: suggested end moves to 45', lay.referenceEnd, 45);
+    c.near('projected end', lay.projectedEnd, 45);
+  });
+
+  scenario('11. Tight run to the finish',
+    'Cleanup done at 30 (20 late), then each item at its compressed length. Skipped buffers stay skipped; run ends at 60.', c => {
+    let s = done(req(), 30);
+    let lay = E.layout(s, 30);
+    const t1 = 30 + L(lay, 'Pack lunch').len;
+    s = done(s, t1); lay = E.layout(s, t1);
+    c.eq('Make bed active (buffer passed over)', E.activeItem(s).name, 'Make bed');
+    c.near('Make bed length', L(lay, 'Make bed').len, 90 / 7);
+    const t2 = t1 + L(lay, 'Make bed').len;
+    s = done(s, t2);
+    c.eq('run finished', s.finished, true);
+    c.near('finished at 60', t2, 60, 0.05);
+    c.eq('statuses', names(s), 'Cleanup:done | Pack lunch:done | Task buffer:skipped | Make bed:done | Break buffer:skipped');
+  });
+
+  scenario('12. Sweep: Cleanup done at every minute 0 to 60',
+    'Invariants for the required end: lengths never negative, end holds unless over, buffer total only falls as time is lost.', c => {
+    let bad = [], prevBuf = Infinity, monotone = true, tailWithBuf = false;
+    for (let t = 0; t <= 60; t++) {
+      const s = done(req(), t); const lay = E.layout(s, t);
+      if (s.finished) continue;
+      if (lay.blocks.some(b => b.len < -1e-9)) bad.push('negative length at ' + t);
+      if (lay.overBy < 1e-6 && lay.freeTail < 1e-6 && Math.abs(lay.projectedEnd - 60) > 1e-6) bad.push('end drifted at ' + t);
+      if (lay.overBy > 1e-6 && lay.projectedEnd < 60) bad.push('over flag wrong at ' + t);
+      const bufTotal = lay.blocks.filter(b => b.type === 'buf').reduce((a, b) => a + b.len, 0);
+      if (bufTotal > prevBuf + 1e-6) monotone = false;
+      prevBuf = bufTotal;
+      if (lay.freeTail > 1e-6 && lay.blocks.some(b => b.type === 'buf' && !b.hidden)) tailWithBuf = true;
+    }
+    c.eq('no invariant violations', bad.join('; ') || 'none', 'none');
+    c.ok('buffer total never grows as completion time gets later', monotone);
+    c.ok('saved tail only appears when no buffer is showing', !tailWithBuf);
+  });
+
+  scenario('13. Pushed items, minimum chime, saved time',
+    'Pushed items return at full length; minimum chime uses total time; leftover time keeps running as saved time.', c => {
+    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
+    let s = E.createRun({ items, mode: 'open', start: 0 });
+    s = E.pushForward(s, 12).state;
+    c.near('returns at full length although 12 > 10 min were spent', L(E.layout(s, 12), 'Cleanup').len, 10);
+    s = done(s, 32);
+    c.eq('Cleanup active again', E.activeItem(s).name, 'Cleanup');
+    c.eq('no minimum chime: minimum already reached', L(E.layout(s, 32), 'Cleanup').minChimeAt, null);
+    let t = E.pushForward(E.createRun({ items, mode: 'open', start: 0 }), 4).state; t = done(t, 24);
+    const lt = E.layout(t, 24);
+    c.near('chime when TOTAL reaches the minimum', L(lt, 'Cleanup').minChimeAt, 30);
+    c.near('block still ends after a full 10 min', L(lt, 'Cleanup').end, 34);
+    const one = () => E.createRun({ items: [{ type: 'est', name: 'A', dur: 10 }], mode: 'required', start: 0, requiredEnd: 20 });
+    const u = done(one(), 6);
+    c.eq('keeps running in saved time', u.finished === false && u.free !== null, true);
+    c.near('saved block runs to the end time', E.layout(u, 8).freeBlock.end, 20);
+    c.eq('adding an item starts it', E.activeItem(E.addItem(u, { type: 'est', name: 'B', dur: 5 }, undefined, 8).state).name, 'B');
+    c.eq('finish from saved time', E.finishRun(u, 10).state.finished, true);
+    c.eq('completing at the end time finishes the run', done(one(), 20).finished, true);
+  });
+
+  scenario('14. Locked block ends: the clock alone never reshuffles',
+    'Active buffer keeps its end while the clock runs; only events (or overrunning the whole block) change plans.', c => {
+    const mk = end => E.createRun({ items: [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'buf', kind: 'task', name: 'Buf', dur: 10 }, { type: 'est', name: 'Pack', dur: 20 }], mode: 'required', start: 0, requiredEnd: end });
+    let s = done(mk(60), 6);
+    [6, 12, 25, 39].forEach(t => { const lay = E.layout(s, t); c.near('growing buffer end at ' + t, L(lay, 'Buf').end, 40); c.near('Pack start at ' + t, L(lay, 'Pack').start, 40); });
+    s = done(mk(35), 10);
+    [10, 12, 15].forEach(t => c.near('shrunk buffer end at ' + t, L(E.layout(s, t), 'Buf').end, 15));
+    c.near('Pack unchanged by the clock', L(E.layout(s, 14), 'Pack').len, 20);
+    const lay = E.layout(s, 20);
+    c.near('overrun: buffer length 0', L(lay, 'Buf').len, 0);
+    c.near('overrun: Pack at floor', L(lay, 'Pack').len, 16);
+    c.near('overrun: over by', lay.overBy, 1);
+    const s2 = done(mk(60), 10), id = s2.items[2].id;
+    c.near('delete Pack at 20: buffer re-locked to 60', L(E.layout(E.deleteItem(s2, id, 20).state, 20), 'Buf').end, 60);
+    c.near('Pack to 30 min at 20: buffer re-locked to 30', L(E.layout(E.updateItem(s2, id, { dur: 30 }, 20).state, 20), 'Buf').end, 30);
+  });
+
+  return results;
+}
+</script>
+<script id="ui">
+const E = ENGINE, $ = id => document.getElementById(id);
+const CLOCK_24H = false;
+const fm = n => String(+n.toFixed(1));
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+const clone = o => JSON.parse(JSON.stringify(o));
+const pad = n => String(n).padStart(2, '0');
+let MUTED = false, actx = null, T0 = 0, DETAIL = null, ROUTINES = defaultRoutines(), RID = 'sprint', RDEL = null, runGain = null, armedSig = '', wake = null, lastWake = 0, impPending = false, lastEdit = 'len';
+function defaultRoutines() { return [
+  { id: 'sprint', name: 'Sprint', mode: 'required', items: [{ type: 'buf', kind: 'task', name: 'Task time', dur: 0 }] },
+  { id: 'morning', name: 'Morning (example)', mode: 'open', items: [
+    { type: 'est', name: 'Brush teeth', dur: 5 }, { type: 'est', name: 'Make bed', dur: 5 }, { type: 'min', name: 'House cleanup', dur: 15 },
+    { type: 'est', name: 'Pack lunch', dur: 15 }, { type: 'buf', kind: 'task', name: 'Habits and tasks', dur: 10 }, { type: 'min', name: 'Flashcards', dur: 15 },
+    { type: 'buf', kind: 'break', name: 'Break', dur: 5 }, { type: 'est', name: 'Shoes and keys', dur: 5 }] }]; }
+function syncNow() { if (state) now = (Date.now() - T0) / 60000; }
+let BP = null, SKIP = new Set(), RUNMOM = 0, HE = null, HD = null, HDEL = null;
+let state = null, now = 0, base = 0, undo = [], tab = 'run', open = null, segs = [], log = [], resetPending = false, mode = 'required';
+
+function clock(m) { let t = Math.floor(((base + m) % 1440 + 1440) % 1440 + 1e-6); let h = Math.floor(t / 60), mi = t % 60;
+  if (!CLOCK_24H) { h = h % 12 || 12; return h + ':' + pad(mi); } return pad(h) + ':' + pad(mi); }
+const hm = s => { const p = (s || '').split(':'); return p.length === 2 ? (+p[0]) * 60 + (+p[1]) : NaN; };
+const toHM = m => pad(Math.floor(((m % 1440) + 1440) % 1440 / 60)) + ':' + pad(Math.round(((m % 1440) + 1440) % 1440) % 60);
+const mmss = m => { const s = Math.round(Math.max(0, m) * 60); return Math.floor(s / 60) + ':' + pad(s % 60); };
+const colorFor = it => it.type === 'min' ? 'var(--min)' : it.type === 'est' ? 'var(--est)' : it.kind === 'break' ? 'var(--brk)' : 'var(--task)';
+const typeLabel = it => it.type === 'min' ? 'Minimum' : it.type === 'est' ? 'Estimate' : it.kind === 'break' ? 'Break buffer' : 'Task buffer';
+const chip = it => `<span class="chip" style="background:${colorFor(it)}">${typeLabel(it)}</span>`;
+const itemById = id => state && state.items.find(i => i.id === id);
+
+/* ---------- setup ---------- */
+const nowMin = () => { const d = new Date(); return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; };
+const rt = () => ROUTINES.find(r => r.id === RID) || ROUTINES[0];
+const total = r => r.items.reduce((a, i) => a + i.dur, 0);
+function populateSetup() { $('preset').innerHTML = ROUTINES.map(r => `<option value="${esc(r.id)}"${r.id === RID ? ' selected' : ''}>${esc(r.name)}</option>`).join(''); }
+function setLen(len) { $('lenH').value = Math.floor(len / 60); $('lenM').value = len % 60; }
+function lenNow() { return (+$('lenH').value || 0) * 60 + (+$('lenM').value || 0); }
+function syncEnd() { $('endT').value = toHM(Math.floor(nowMin()) + lenNow()); syncOpen(); }
+function syncOpen() { const t = total(rt()); $('openBox').textContent = `Suggested length ${t} min, so starting now ends about ${toHM(Math.floor(nowMin()) + t)}.`; }
+function setMode(m) { mode = m; $('mReq').className = m === 'required' ? 'on' : ''; $('mOpen').className = m === 'open' ? 'on' : '';
+  $('reqBox').style.display = m === 'required' ? 'block' : 'none'; $('openBox').style.display = m === 'open' ? 'block' : 'none'; syncOpen(); }
+$('preset').onchange = () => { RID = $('preset').value; const r = rt(); setLen(r.id === 'sprint' ? 90 : Math.max(1, total(r))); lastEdit = 'len'; setMode(r.mode || 'required'); syncEnd(); save(); };
+$('lenH').oninput = $('lenM').oninput = () => { lastEdit = 'len'; syncEnd(); };
+$('endT').onchange = () => { lastEdit = 'end'; setLen(Math.round(((hm($('endT').value) - nowMin()) % 1440 + 1440) % 1440)); };
+$('mReq').onclick = () => setMode('required'); $('mOpen').onclick = () => setMode('open');
+$('startBtn').onclick = () => {
+  const r = rt(), nm = nowMin(); let len = lenNow(); const err = m => { $('setupErr').textContent = m; };
+  if (mode === 'required' && lastEdit === 'end') len = Math.round(((hm($('endT').value) - nm) % 1440 + 1440) % 1440);
+  if (!r.items.length) return err('This routine has no items.');
+  if (mode === 'required' && len <= 0) return err('Set a length greater than 0.');
+  if (mode === 'open' && total(r) <= 0) return err('Open-ended needs items with time.');
+  err(''); base = nm; T0 = Date.now(); now = 0; undo = []; log = []; open = null; tab = 'run'; BP = null; SKIP = new Set(); RUNMOM = 0; DETAIL = null;
+  state = E.createRun({ items: clone(r.items), mode, start: 0, requiredEnd: len });
+  try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch (e) {}
+  render();
+};
+/* ---------- actions ---------- */
+function snap() { syncNow(); captureHE(); undo.push({ state: clone(state), now, log: log.slice(), bp: clone(BP), skip: [...SKIP], tasks: clone(TASKS), habits: clone(HABITS), day: DAY, mom: RUNMOM }); if (undo.length > 100) undo.shift(); }
+function doUndo() { if (!undo.length) return; const u = undo.pop(); state = u.state; now = u.now; log = u.log; BP = u.bp; SKIP = new Set(u.skip); TASKS = u.tasks; HABITS = u.habits; DAY = u.day; RUNMOM = u.mom; render(); }
+function apply(fn) { snap(); const r = fn(); if (r.error) { undo.pop(); flash(r.error); } else { state = r.state; afterEngine(); } render(); }
+function afterEngine() { const a = E.activeItem(state); if (!BP) return; if (a && a.id === BP.bufId) replanBP(); else { RUNMOM = BP.mom; BP = null; } }
+let flashMsg = ''; function flash(m) { flashMsg = m; }
+function addLog(m) { log.push(clock(now) + '  ' + m); if (log.length > 6) log.shift(); }
+function tone(f, t, dur, vol) { const o = actx.createOscillator(), g = actx.createGain(); o.type = 'sine'; o.frequency.value = f;
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur + 0.05); }
+function playChime(n) { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); const t = actx.currentTime + 0.05;
+  if (n === 1) { tone(659.25, t, 0.5, 0.2); return; }
+  tone(330, t, 0.55, 0.07); [659.25, 783.99, 987.77].forEach((f, i) => tone(f, t + 0.6 + i * 0.28, 0.5, 0.25)); } catch (e) {} }
+function chimeEvent(msg, n) { addLog(msg + (MUTED ? ' (muted)' : '')); if (!MUTED) playChime(n); }
+function toggleMute() { MUTED = !MUTED; render(); }
+function advance(dt) {
+  if (!state || state.finished) return; snap();
+  const lay = E.layout(state, now), b = lay.blocks.find(x => x.status === 'active'), nw = now + dt, old = now;
+  if (b) {
+    if (b.minChimeAt !== null && b.minChimeAt > old && b.minChimeAt <= nw) { now = b.minChimeAt; chimeEvent('single chime: total time reached the minimum', 1); }
+    for (let k = 0; k < 2; k++) { const t = b.end + k * 0.5; if (t > old && t <= nw) { now = t; chimeEvent(k ? 'repeat chime (30 s later)' : 'chime: item time is up', 3); } }
+  } else if (state.free && lay.referenceEnd > old && lay.referenceEnd <= nw) { now = lay.referenceEnd; addLog('end time reached'); }
+  now = nw; flashMsg = ''; render();
+}
+function itemAct(kind, id) {
+  if (kind === 'up') apply(() => E.moveItem(state, id, -1, now)); else if (kind === 'down') apply(() => E.moveItem(state, id, 1, now));
+  else if (kind === 'del') { open = null; apply(() => E.deleteItem(state, id, now)); }
+}
+const go = t => { tab = t; DETAIL = null; render(); };
+function pick(i) { const s = segs[i]; if (!s) return; let x;
+  if (s.free) x = `Saved time ${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`;
+  else { const it = s.it; x = `${s.sub || it.name}. ` + (s.past ? `${s.partial ? 'Pushed forward after' : 'Done after'} ${fm(s.to - s.from)} min, ${clock(s.from)} to ${clock(s.to)}.` : s.now ? `Running since ${clock(s.from)}, ${fm(s.elapsed)} min so far.` : `${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`);
+    const pl = PLANS[it.id]; if (!s.past && !s.sub && pl && pl.length) x += ' Suggested: ' + pl.map(t => t.name).join(', ') + '.'; }
+  if (s.sub && s.it.lockedEnd != null) x += ' Buffer ends ' + clock(s.it.lockedEnd) + '.';
+  if (s.bufEnd != null) x += ' Task buffer ends ' + clock(s.bufEnd) + '.';
+  DETAIL = x; $('detail').textContent = x; }
+function resetRun() { if (!resetPending) { resetPending = true; render(); setTimeout(() => { resetPending = false; if (state) render(); }, 4000); return; } resetPending = false; state = null; render(); }
+
+/* ---------- render ---------- */
+function runView(lay) {
+  const act = E.activeItem(state), b = lay.blocks.find(x => x.status === 'active'), ref = lay.referenceEnd;
+  let cur;
+  if (state.finished) { const last = state.history[state.history.length - 1]; cur = `<div class="card cur"><h2>Routine complete</h2><div class="name">Finished at ${clock(last ? last.to : now)}</div><div class="mut">Planned end ${clock(ref)}.</div></div>`; }
+  else if (state.free) { const left = Math.max(0, ref - now);
+    cur = `<div class="card cur"><span class="chip" style="background:var(--brk)">Saved time</span><div class="name">Nothing scheduled</div><div class="big">${left > 0 ? mmss(left) : 'End time reached'}</div><div class="mut">${left > 0 ? 'left until the end time. Add an item on the Edit tab, or finish.' : 'The routine can be finished now.'}</div><button class="pri" style="min-height:56px;width:100%" onclick="apply(()=>E.finishRun(state,now))">Finish routine</button></div>`; }
+  else if (act.type === 'buf' && act.kind === 'task') { cur = taskBufferCard(act, b); }
+  else { const over = now - act.lockedEnd, inMin = b.minChimeAt !== null;
+    cur = `<div class="card cur">${chip(act)}<div class="name">${esc(act.name)}</div><div class="big">${b.len > 0 ? mmss(b.len) : '+' + fm(Math.max(0, over)) + ' min over'}</div><div class="mut">${b.len > 0 ? 'left in this block' : 'past its time'}, ends ${clock(b.end)}</div>`
+      + (act.spent > 0 ? `<div class="mut">${fm(act.spent)} min already spent on it earlier (not credited to this block)</div>` : '')
+      + (act.type === 'min' ? `<div class="mut">${inMin ? 'Single chime in ' + mmss(b.minChimeAt - now) + ' when total time reaches ' + fm(act.dur) + ' min' : 'Minimum of ' + fm(act.dur) + ' min already reached'}</div>` : '')
+      + `<button class="pri" style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.complete(state,now))">Done</button><button style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.pushForward(state,now))">Push forward</button></div>`; }
+  segs = [];
+  state.history.forEach(h => segs.push(h.free ? { from: h.from, to: h.to, free: true, past: true } : { from: h.from, to: h.to, it: itemById(h.id), past: true, partial: h.partial }));
+  let bufEnd = null;
+  lay.blocks.forEach(x => { if (x.hidden) return; const it = itemById(x.id);
+    if (x.status === 'active') {
+      if (BP && BP.bufId === x.id) { subSegs(it).forEach(q => segs.push(q)); bufEnd = it.lockedEnd; }
+      else segs.push({ from: act.activeSince, to: x.end, it, now: true, elapsed: now - act.activeSince });
+    } else { segs.push({ from: x.start, to: x.end, it, bufEnd }); bufEnd = null; } });
+  if (state.free) segs.push({ from: state.free.since, to: Math.max(ref, now), free: true, now: true, elapsed: now - state.free.since });
+  else if (!state.finished && lay.freeTail > 0.05) segs.push({ from: lay.projectedEnd, to: ref, free: true });
+  const endAll = Math.max(ref, now, ...segs.map(s => s.to)), span = Math.max(1, endAll), pc = m => m / span * 100;
+  const bar = segs.map((s, i) => { const w = Math.max(0.3, (s.to - s.from) / span * 100);
+    const fill = s.now ? `<div class="fill" style="width:${Math.min(100, s.to > s.from ? s.elapsed / (s.to - s.from) * 100 : 100)}%"></div>` : '';
+    return `<div class="s${s.past ? ' past' : ''}${s.now && !s.free ? ' now' : ''}${s.partial ? ' partial' : ''}${s.grey ? ' grey' : ''}${s.rem ? ' rem' : ''}" style="width:${w}%;background:${s.free ? 'var(--brk)' : colorFor(s.it)}" onclick="pick(${i})">${fill}</div>`; }).join('');
+  const pe = state.finished ? ref : lay.projectedEnd, moved = Math.abs(pe - ref) > 0.5, late = pe - ref > 0.5, early = ref - pe > 0.5 && !state.free;
+  const endHtml = (moved && !state.finished && !state.free) ? `<div class="endbig ${late ? 'late' : 'early'}">${clock(pe)}</div><div class="mut">was ${clock(ref)}</div>` : `<div class="endbig">${clock(ref)}</div><div class="mut">${state.mode === 'required' ? 'required' : 'estimated'}</div>`;
+  return (MUTED || (actx && actx.state === 'running') ? '' : '<div class="mut">Tap anywhere to enable sound.</div>') + cur + `<div class="card"><h2>Timeline</h2><div class="ends"><div><div class="mut">Now</div><div class="nowbig">${clock(now)}</div></div><div style="text-align:right">${endHtml}</div></div>`
+    + `<div class="bar-wrap"><div class="bar">${bar}</div><div class="mk nowm" style="left:calc(6px + (100% - 12px) * ${pc(now) / 100})"></div>`
+    + (moved && !state.free ? `<div class="mk orig" style="left:calc(6px + (100% - 12px) * ${pc(ref) / 100})"></div>` : '') + `<div class="mk endm${late ? ' late' : early ? ' early' : ''}" style="left:calc(6px + (100% - 12px) * ${pc(Math.min(pe, endAll)) / 100})"></div></div>`
+    + `<div class="detail" id="detail"></div><div class="legend"><span><span class="chip" style="background:var(--est)">&nbsp;</span> Estimate</span><span><span class="chip" style="background:var(--min)">&nbsp;</span> Minimum</span><span><span class="chip" style="background:var(--task)">&nbsp;</span> Task buffer</span><span><span class="chip" style="background:var(--brk)">&nbsp;</span> Break buffer or saved time</span></div>`
+    + `</div>`
+    
+    + `<button onclick="resetRun()">${resetPending ? 'Confirm: discard this run?' : 'Back to setup'}</button>`;
+}
+/* ---------- tasks and habits (mockup data; scoring ported from routine18_4) ---------- */
+let DAY = 1, PLANS = {}, taskSeq = 0, habitSeq = 0;
+let TASKS = [], HABITS = [];
+const cl = x => Math.min(1, Math.max(0, x));
+const sorted = t => t.dur != null && t.urg != null && t.imp != null;
+function hState(h) {
+  const count = h.done.filter(d => d > DAY - h.Y && d <= DAY).length, n = Math.max(0, h.X - count);
+  const last = h.done.length ? Math.max(...h.done) : null, D = (last !== null ? last : h.start) + h.Y, m = Math.max(1, h.Y / h.X);
+  const lateness = Math.max(0, DAY - D), misses = Math.floor(lateness / m + 1e-9), status = misses === 0 ? 'a' : misses === 1 ? 'n' : 'i';
+  const cool = h.Z === 0 || last === null || DAY >= last + h.Z, showing = !h.paused && n > 0 && cool, doneToday = h.done.filter(d => d === DAY).length;
+  return { count, n, D, m, lateness, status, showing, doneToday };
+}
+function hUrg(h, s) { if (s.status === 'i') return 20; if (s.status === 'n') return 80 + 20 * cl((s.lateness - s.m + 1) / s.m);
+  return 20 + 60 * cl(1 - (s.D - (s.n - 1) * h.Z - DAY) / h.Y); }
+const hImp = (h, s) => h.imp - Math.min(s.count, h.X - 1) / h.X;
+const freq = h => h.X === 1 ? (h.Y === 1 ? 'daily' : `every ${h.Y} days`) : `${h.X} times in ${h.Y} days`;
+function freqText(X, Y, Z) { let t = X === 1 ? (Y === 1 ? 'once a day' : `once every ${Y} days`) : (Y === 1 ? `${X} times a day` : `${X} times in ${Y} days`);
+  if (X > 1 && Z > 0) t += `, at least ${Z} ${Z === 1 ? 'day' : 'days'} apart`; return t; }
+function chkFreq(X, Y, Z) { if (!(X >= 1) || !(Y >= 1) || !(Z >= 0)) return 'X and Y must be 1 or more, Z 0 or more.';
+  if (X > Y && Z !== 0) return 'Z has to be 0 when X is more than Y.';
+  if (Z >= 1 && X > 1 && (X - 1) * Z > Y - 1) return `Doesn't fit: the largest Z is ${Math.floor((Y - 1) / (X - 1))}.`; return ''; }
+
+/* ---------- shared pool and task-buffer planning ---------- */
+function taskPool() {
+  const p = [];
+  TASKS.forEach(t => { if (!t.checked && sorted(t)) p.push({ kind: 'task', key: 't' + t.id, ref: t, name: t.name, duration: t.dur, score: t.urg + t.imp * 15, low: SKIP.has('t' + t.id) }); });
+  HABITS.forEach(h => { const s = hState(h); if (s.showing) p.push({ kind: 'habit', key: 'h' + h.id, ref: h, name: h.name, duration: h.dur, score: hUrg(h, s) + hImp(h, s) * 15, low: SKIP.has('h' + h.id) }); });
+  return p;
+}
+// Tasks skipped this run (low) are only picked when nothing else is left, like the runner.
+function simTasks(pool, mom, budget) {
+  const mom0 = mom; let p = pool.slice(), rem = budget; const out = [];
+  while (rem > 1e-9 && p.length) {
+    const w = p.some(t => !t.low) ? p.filter(t => !t.low) : p;
+    const qw = w.filter(t => t.duration <= 5).sort((a, b) => b.score - a.score);
+    const c = (qw.length && mom < 3) ? qw[0] : w.slice().sort((a, b) => b.score - a.score)[0];
+    out.push(c); p = p.filter(t => t !== c); rem -= c.duration; mom = c.duration <= 5 ? mom + 1 : 0;
+  }
+  let left = budget; const kept = out.filter(t => t.duration <= left + 1e-9 ? (left -= t.duration, true) : false);
+  let m = mom0; kept.forEach(t => { m = t.duration <= 5 ? m + 1 : 0; });
+  return { kept, mom: m };
+}
+const strip = c => ({ kind: c.kind, id: c.ref.id, key: c.key, name: c.name, duration: c.duration });
+const lookup = c => c.kind === 'task' ? TASKS.find(t => t.id === c.id) : HABITS.find(h => h.id === c.id);
+function curCount(c) { const o = lookup(c); return !o ? 0 : c.kind === 'task' ? (o.checked ? 1 : 0) : hState(o).doneToday; }
+function completeTask(c) { const o = lookup(c); if (!o) return; if (c.kind === 'task') o.checked = true; else o.done.push(DAY); }
+
+// Buffers that are not active yet are planned from the shared pool; the active one uses its stored plan.
+function bufferPlans(lay) {
+  let pool = taskPool(), mom = 0, prev = null; const plans = {};
+  lay.blocks.forEach(b => {
+    if (b.hidden) return;
+    if (b.type === 'buf' && b.kind === 'task') {
+      if (b.status === 'active' && BP && BP.bufId === b.id) {
+        plans[b.id] = [BP.cur, ...BP.upcoming].filter(Boolean);
+        pool = pool.filter(t => !plans[b.id].some(x => x.key === t.key)); mom = BP.mom;
+      } else {
+        const start = prev === 'break' ? 0 : (prev === 'est' || prev === 'min') ? 3 : mom;
+        const r = simTasks(pool, start, b.len); plans[b.id] = r.kept; pool = pool.filter(t => !r.kept.includes(t)); mom = r.mom;
+      }
+    } else if (b.type === 'buf') mom = 0;
+    prev = b.type === 'buf' ? b.kind : b.type;
+  });
+  return plans;
+}
+function ensureBP() {
+  const act = state && E.activeItem(state);
+  if (!act || act.type !== 'buf' || act.kind !== 'task' || (BP && BP.bufId === act.id)) return;
+  const idx = state.items.indexOf(act); let p = null;
+  for (let k = idx - 1; k >= 0; k--) if (state.items[k].status === 'done') { p = state.items[k]; break; }
+  BP = { bufId: act.id, mom: !p ? 0 : p.type === 'buf' ? (p.kind === 'break' ? 0 : RUNMOM) : 3, done: [], cur: null, upcoming: [] };
+  replanBP();
+}
+// Runs only at events (activation, task done / pushed / unchecked, edits). The current task stays pinned.
+function replanBP() {
+  const act = state && E.activeItem(state);
+  if (!BP || !act || act.id !== BP.bufId) return;
+  let c = BP.cur;
+  if (c && !lookup(c)) BP.cur = c = null;
+  if (c && curCount(c) > c.cnt0) { BP.done.push({ name: c.name, key: c.key, from: c.start, to: now }); BP.mom = c.duration <= 5 ? BP.mom + 1 : 0; BP.cur = c = null; }
+  let pool = taskPool(), mom = BP.mom, t0 = now;
+  if (c) { pool = pool.filter(t => t.key !== c.key); mom = c.duration <= 5 ? mom + 1 : 0; t0 = Math.max(now, c.start + c.duration); }
+  const list = simTasks(pool, mom, Math.max(0, act.lockedEnd - t0)).kept.map(strip);
+  if (!c && list.length) { BP.cur = { ...list.shift(), start: now }; BP.cur.cnt0 = curCount(BP.cur); }
+  BP.upcoming = list;
+}
+function subSegs(it) {
+  const out = [], le = it.lockedEnd;
+  BP.done.forEach(d => out.push({ from: d.from, to: d.to, it, sub: d.name, past: true, partial: d.partial }));
+  let t = BP.done.length ? BP.done[BP.done.length - 1].to : it.activeSince;
+  if (BP.cur) {
+    const c = BP.cur, to = Math.max(c.start + c.duration, now);
+    if (c.start > t + 0.05) out.push({ from: t, to: c.start, it, sub: 'Buffer remainder', rem: true });
+    out.push({ from: c.start, to, it, sub: c.name, now: true, elapsed: now - c.start }); t = to;
+  }
+  BP.upcoming.forEach(u => { if (t >= le - 1e-6) return; const full = t + u.duration, to = Math.min(full, le);
+    out.push({ from: t, to, it, sub: u.name, grey: full > le + 1e-6 }); t = to; });
+  if (le - t > 0.05) out.push({ from: t, to: le, it, sub: 'Buffer remainder', rem: true });
+  return out;
+}
+function bufDone() { const c = BP && BP.cur; if (!c) { apply(() => E.complete(state, now)); return; } snap(); completeTask(c); replanBP(); render(); }
+function bufPush() { const c = BP && BP.cur; if (!c) return; snap(); SKIP.add(c.key); BP.done.push({ name: c.name, key: c.key, from: c.start, to: now, partial: true }); BP.cur = null; replanBP(); render(); }
+function taskBufferCard(act) {
+  const c = BP.cur, le = act.lockedEnd, left = Math.max(0, le - now), tl = c ? c.start + c.duration - now : 0;
+  let t = Math.max(now, c ? c.start + c.duration : now);
+  const up = BP.upcoming.filter(u => (t += u.duration) <= le + 1e-6).map(u => esc(u.name)).join(', ');
+  const big = c ? (tl >= 0 ? mmss(tl) : '+' + fm(-tl) + ' min over') : (left > 0 ? mmss(left) : 'Time is up');
+  return `<div class="card cur">${chip(act)}<div class="name">${c ? esc(c.name) : 'Nothing fits the time left'}</div><div class="big">${big}</div>`
+    + `<div class="mut">${c ? fm(c.duration) + ' min task · ' : ''}buffer ends ${clock(le)}, ${fm(left)} min left</div>`
+    + (up ? `<div class="mut" style="margin-top:6px">Then: ${up}</div>` : '') + (c ? '' : '<div class="mut">Tap Done to move on.</div>')
+    + `<button class="pri" style="min-height:56px;width:calc(50% - 4px);margin-top:8px" onclick="bufDone()">Done</button><button style="min-height:56px;width:calc(50% - 4px)" ${c ? '' : 'disabled'} onclick="bufPush()">Push forward</button>`
+    + (c ? `<button style="width:100%" onclick="apply(()=>E.complete(state,now))">End buffer early</button>` : '') + `</div>`;
+}
+
+/* ---------- tasks tab actions ---------- */
+function afterChange() { replanBP(); render(); }
+function taskToggle(id, v) { snap(); TASKS.find(t => t.id === id).checked = v; if (!v && BP) { const k = BP.done.map(d => d.key).lastIndexOf('t' + id); if (k >= 0) BP.done.splice(k, 1); } afterChange(); }
+function habitToggle(id, v) { snap(); const h = HABITS.find(x => x.id === id);
+  if (v) h.done.push(DAY); else { const i = h.done.lastIndexOf(DAY); if (i >= 0) h.done.splice(i, 1); if (BP) { const k = BP.done.map(d => d.key).lastIndexOf('h' + id); if (k >= 0) BP.done.splice(k, 1); } }
+  afterChange(); }
+function nextDay() {
+  snap(); DAY++;
+  TASKS = TASKS.filter(t => !t.checked);
+  TASKS.forEach(t => { if (t.imp == null || t.urg == null) return;
+    if (t.utype === 'sooner') t.urg = Math.min(t.urg + t.imp, 100); else if (t.utype === 'urgent') t.urg = Math.min(t.urg + 2 * t.imp, 100); });
+  const rank = h => h.paused ? 3 : ({ n: 0, a: 1, i: 2 })[hState(h).status];
+  HABITS = HABITS.map((h, i) => ({ h, i, r: rank(h) })).sort((a, b) => a.r - b.r || a.i - b.i).map(x => x.h);
+  afterChange(); }
+function addTaskUI() { const n = $('tkName').value.trim(); if (!n) return; snap();
+  TASKS.push({ id: ++taskSeq, name: n, dur: null, urg: null, utype: null, imp: null, checked: false }); afterChange(); }
+function nextUnsorted() { const u = TASKS.filter(t => !t.checked && !sorted(t)); return u.find(t => t.dur == null) || u.find(t => t.urg == null) || u.find(t => t.imp == null) || null; }
+function setTaskField(id, f, v) { snap(); const t = TASKS.find(x => x.id === id);
+  if (f === 'dur') t.dur = v; else if (f === 'urg') { t.utype = v; t.urg = { urgent: 80, sooner: 30, whenever: 20 }[v]; } else t.imp = v; afterChange(); }
+function markLong(id) { snap(); const t = TASKS.find(x => x.id === id); t.orig = t.name; t.name = 'Identify the first step of ' + t.name; t.dur = 5; afterChange(); }
+function sortCard() {
+  const t = nextUnsorted(); if (!t) return '';
+  const b = (l, f, v) => `<button onclick="setTaskField(${t.id},'${f}',${typeof v === 'string' ? `'${v}'` : v})">${l}</button>`;
+  if (t.dur == null) return `<div class="detail"><b>Set duration</b><br>${esc(t.name)}<br>${b('5 min', 'dur', 5)}${b('15 min', 'dur', 15)}${b('30 min', 'dur', 30)}<button onclick="markLong(${t.id})">Long (1 hr+)</button></div>`;
+  const nm = esc(t.orig || t.name);
+  if (t.urg == null) return `<div class="detail"><b>Set urgency</b><br>${nm}<br>${b('Urgent', 'urg', 'urgent')}${b('Sooner is Better', 'urg', 'sooner')}${b('Whenever', 'urg', 'whenever')}</div>`;
+  return `<div class="detail"><b>Set importance</b><br>${nm}<br>${b('Must-do', 'imp', 3)}${b('Builds the life I want to live', 'imp', 2)}${b('Benefits those around me', 'imp', 2)}${b('No big deal either way', 'imp', 1)}</div>`;
+}
+
+/* ---------- habit editor ---------- */
+function captureHE() { if (HE === null || !$('heName')) return; HD = { name: $('heName').value, dur: $('heDur').value, imp: $('heImp').value, X: $('heX').value, Y: $('heY').value, Z: $('heZ').value }; }
+function heHTML(h) {
+  const n = h === null, d = HD || (n ? { name: '', dur: '15', imp: '2', X: '1', Y: '1', Z: '1' } : { name: h.name, dur: String(h.dur), imp: String(h.imp), X: String(h.X), Y: String(h.Y), Z: String(h.Z) });
+  const num = (id, l, v, w, extra) => `<label>${l}<input id="${id}" type="number" min="${extra}" value="${esc(v)}" style="width:${w}px" oninput="heLive()"></label>`;
+  const ex = n ? '' : `<button onclick="heDelete(${h.id})">${HDEL === h.id ? 'Confirm delete?' : 'Delete'}</button><button onclick="hePause(${h.id})">${h.paused ? 'Resume' : 'Pause'}</button>`;
+  return `<div class="ed" style="background:var(--bg);border-radius:8px;padding:8px;margin:4px 0"><label>Name<input id="heName" value="${esc(d.name)}" style="width:170px"></label>`
+    + num('heDur', 'Minutes', d.dur, 64, 1) + `<label>Importance<select id="heImp">${[['3', 'Must-do'], ['2', 'Builds life / benefits others'], ['1', 'No big deal']].map(([v, l]) => `<option value="${v}"${d.imp === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`
+    + num('heX', 'X (times)', d.X, 60, 1) + num('heY', 'Y (days)', d.Y, 60, 1) + num('heZ', 'Z (days apart)', d.Z, 60, 0)
+    + `<div class="mut" id="heSum" style="width:100%"></div><div class="late" id="heErr" style="width:100%"></div><button class="pri" onclick="heSave()">Save</button><button onclick="heCancel()">Cancel</button>${ex}</div>`;
+}
+function heLive() { if (!$('heX')) return; const X = parseInt($('heX').value), Y = parseInt($('heY').value), Z = parseInt($('heZ').value), p = chkFreq(X, Y, Z);
+  $('heErr').textContent = p; $('heSum').textContent = p ? '' : 'Means: ' + freqText(X, Y, Z) + '.'; }
+function openHE(id) { HE = HE === id ? null : id; HD = null; HDEL = null; render(); }
+function heCancel() { HE = null; HD = null; HDEL = null; render(); }
+function heSave() {
+  const name = $('heName').value.trim(), dur = parseFloat($('heDur').value), imp = parseInt($('heImp').value), X = parseInt($('heX').value), Y = parseInt($('heY').value), Z = parseInt($('heZ').value);
+  const err = !name ? 'Enter a name.' : !(dur >= 1) ? 'Minutes must be at least 1.' : chkFreq(X, Y, Z);
+  if (err) { $('heErr').textContent = err; return; }
+  snap(); const f = { name, dur, imp, X, Y, Z };
+  if (HE === 'new') { const h = { id: ++habitSeq, ...f, start: DAY, done: [], paused: false }; let i = HABITS.length;
+    while (i > 0 && (HABITS[i - 1].paused || hState(HABITS[i - 1]).status === 'i')) i--; HABITS.splice(i, 0, h);
+  } else Object.assign(HABITS.find(h => h.id === HE), f);
+  HE = null; HD = null; HDEL = null; afterChange();
+}
+function hePause(id) { snap(); const h = HABITS.find(x => x.id === id); h.paused = !h.paused; afterChange(); }
+function heDelete(id) { if (HDEL !== id) { HDEL = id; render(); return; } snap(); HABITS = HABITS.filter(h => h.id !== id); HE = null; HD = null; HDEL = null; afterChange(); }
+
+function tasksView() {
+  const col = { a: 'var(--task)', n: '#e6c04a', i: '#8f6b5f' };
+  const hr = (HE === 'new' ? heHTML(null) : '') + HABITS.map(h => { const s = hState(h), tot = h.paused ? 0 : s.doneToday + (s.showing ? (h.Z === 0 ? s.n : 1) : 0); let bx = '';
+    for (let i = 0; i < tot; i++) bx += `<input type="checkbox" ${i < s.doneToday ? 'checked' : ''} onchange="habitToggle(${h.id},this.checked)">`;
+    return `<div class="row${h.paused ? ' dim' : ''}" style="border-left:3px solid ${h.paused ? '#777' : col[s.status]};padding-left:8px"><div class="main"><div>${esc(h.name)}</div><div class="tm">${freq(h)} · ${h.dur} min · ${h.paused ? 'paused' : s.showing ? 'due' : 'not due'}</div></div><div>${bx}</div><button onclick="openHE(${h.id})">Edit</button></div>${HE === h.id ? heHTML(h) : ''}`; }).join('');
+  const tr = TASKS.slice().sort((a, b) => (sorted(b) ? b.urg + b.imp * 15 : -1) - (sorted(a) ? a.urg + a.imp * 15 : -1) || a.id - b.id).map(t =>
+    `<div class="row${t.checked ? ' dim' : ''}"><input type="checkbox" ${t.checked ? 'checked' : ''} onchange="taskToggle(${t.id},this.checked)"><div class="main"><div>${esc(t.name)}</div><div class="tm">${sorted(t) ? t.dur + ' min · ' + t.utype : 'not sorted yet'}</div></div></div>`).join('');
+  return `<div class="card"><h2>Habits</h2><button onclick="openHE('new')">+ New habit</button>${hr}<div class="mut" style="margin-top:6px">Day ${DAY} <button onclick="nextDay()">New day</button></div></div>`
+    + `<div class="card"><h2>Tasks</h2>${sortCard()}${tr}<div class="ed" style="border-top:1px solid var(--line);margin-top:6px"><label>New task<input id="tkName" style="width:200px" onkeydown="if(event.key==='Enter')addTaskUI()"></label><button class="pri" onclick="addTaskUI()">Add</button></div></div>`;
+}
+/* ---------- edit tab ---------- */
+let isNew = null;
+function setF() {}
+function tapItem(id) { open = open === id ? null : id; isNew = null; render(); }
+function saveEdit(id) {
+  const p = { name: $('edName').value.trim() || 'Item', dur: Math.max(0, parseFloat($('edDur').value) || 0) };
+  if ($('edType')) { const v = $('edType').value; Object.assign(p, v.startsWith('buf:') ? { type: 'buf', kind: v.slice(4) } : { type: v }); }
+  open = null; isNew = null; apply(() => E.updateItem(state, id, p, now));
+}
+function cancelEdit(id) { const n = isNew === id; open = null; isNew = null; if (n) apply(() => E.deleteItem(state, id, now)); else render(); }
+function addNew() { apply(() => E.addItem(state, { type: 'est', name: 'New item', dur: 5 }, undefined, now)); if (state) { open = state.items[state.items.length - 1].id; isNew = open; } render(); }
+function editView(lay) {
+  const rows = state.items.map(it => { const b = lay.blocks.find(x => x.id === it.id), pend = it.status === 'pending';
+    let tm; const h = [...state.history].reverse().find(x => x.id === it.id && !x.partial);
+    if (it.status === 'done') tm = h ? `${clock(h.from)}-${clock(h.to)} · ${fm(h.to - h.from)} min` : 'done';
+    else if (it.status === 'skipped') tm = 'skipped'; else if (b && b.hidden) tm = 'no room right now';
+    else tm = it.status === 'active' ? `now, to ${clock(b.end)} · ${fm(b.len)} min left` : `${clock(b.start)}-${clock(b.end)} · ${fm(b.len)} min`;
+    const pl = PLANS[it.id]; if (pl && pl.length) tm += ' · ' + pl.map(t => t.name).join(', ');
+    const ed = open === it.id && (pend || it.status === 'active') ? `<div class="ed"><label>Name<input id="edName" value="${esc(it.name)}"></label>`
+      + (pend ? `<label>Type<select id="edType">${[['est', 'Estimate'], ['min', 'Minimum'], ['buf:task', 'Task buffer'], ['buf:break', 'Break buffer']].map(([v, l]) => `<option value="${v}"${(it.type === 'buf' ? 'buf:' + it.kind : it.type) === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>` : '')
+      + `<label>Minutes<input id="edDur" type="number" min="0" value="${it.dur}"></label><button class="pri" onclick="saveEdit('${it.id}')">Save</button><button onclick="cancelEdit('${it.id}')">Cancel</button>${pend ? `<button onclick="itemAct('del','${it.id}')">Delete</button>` : ''}</div>` : '';
+    return `<div class="row${pend || it.status === 'active' ? '' : ' dim'}">${pend ? `<button class="arrow" aria-label="Move up" onclick="itemAct('up','${it.id}')">&#9650;</button><button class="arrow" aria-label="Move down" onclick="itemAct('down','${it.id}')">&#9660;</button>` : '<span style="width:92px"></span>'}`
+      + `<div class="main" onclick="tapItem('${it.id}')"><div>${esc(it.name)} ${chip(it)}</div><div class="tm">${tm}</div></div></div>${ed}`; }).join('');
+  const pe = lay.projectedEnd, ref = lay.referenceEnd, differs = !state.finished && !state.free && Math.abs(pe - ref) > 0.5;
+  return `<div class="card"><h2>Items</h2>${rows}<button onclick="addNew()" style="margin-top:8px"${state.finished ? ' disabled' : ''}>+ Add item</button></div>`
+    + `<div class="card"><h2>${state.mode === 'required' ? 'Required' : 'Suggested'} end ${clock(ref)}</h2>${differs ? `<div style="font-size:1.05rem">Expected end ${clock(pe)}</div>` : ''}</div>` + muteCard();
+}
+
+function muteCard() { return `<div class="card"><button onclick="toggleMute()" style="width:100%">${MUTED ? 'Sound muted (tap to unmute)' : 'Sound on (tap to mute)'}</button></div>`; }
+function routineEditor() {
+  const r = rt(), tv = it => it.type === 'buf' ? 'buf:' + (it.kind || 'task') : it.type, T = [['est', 'Estimate'], ['min', 'Minimum'], ['buf:task', 'Task buffer'], ['buf:break', 'Break buffer']];
+  const rows = r.items.map((it, i) => `<div class="row"><button class="arrow" aria-label="Move up" onclick="rMove(${i},-1)">&#9650;</button><button class="arrow" aria-label="Move down" onclick="rMove(${i},1)">&#9660;</button>`
+    + `<div class="main"><input value="${esc(it.name)}" onchange="rSet(${i},'name',this.value)"><div class="ed" style="padding:4px 0"><select onchange="rSet(${i},'type',this.value)">${T.map(([v, l]) => `<option value="${v}"${tv(it) === v ? ' selected' : ''}>${l}</option>`).join('')}</select><input type="number" min="0" value="${it.dur}" onchange="rSet(${i},'dur',this.value)"> min</div></div><button class="arrow" aria-label="Delete" onclick="rDel(${i})">&#10005;</button></div>`).join('');
+  return `<div class="card"><h2>Edit routine</h2><label>Routine <select onchange="RID=this.value;RDEL=null;render()">${ROUTINES.map(x => `<option value="${esc(x.id)}"${x.id === r.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label><br>`
+    + `<label>Name <input value="${esc(r.name)}" onchange="rRename(this.value)"></label><br><label>Default end <select onchange="rMode(this.value)"><option value="required"${r.mode !== 'open' ? ' selected' : ''}>Required end time</option><option value="open"${r.mode === 'open' ? ' selected' : ''}>Open-ended</option></select></label>`
+    + rows + `<button onclick="rAdd()" style="margin-top:8px">+ Add item</button><div style="margin-top:8px"><button onclick="rNew()">New routine</button><button onclick="rRemove()"${r.id === 'sprint' ? ' disabled' : ''}>${RDEL === r.id ? 'Confirm delete?' : 'Delete routine'}</button></div></div>` + muteCard();
+}
+function rSet(i, f, v) { const it = rt().items[i]; if (f === 'name') it.name = v.trim() || 'Item'; else if (f === 'dur') it.dur = Math.max(0, parseFloat(v) || 0);
+  else if (v.startsWith('buf:')) { it.type = 'buf'; it.kind = v.slice(4); } else { it.type = v; delete it.kind; } save(); }
+function rMove(i, d) { const a = rt().items, j = i + d; if (j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; render(); }
+function rDel(i) { rt().items.splice(i, 1); render(); }
+function rAdd() { rt().items.push({ type: 'est', name: 'New item', dur: 5 }); render(); }
+function rRename(v) { rt().name = v.trim() || 'Routine'; render(); }
+function rMode(v) { rt().mode = v; save(); }
+function rNew() { const r = { id: 'r' + Date.now(), name: 'New routine', mode: 'required', items: [] }; ROUTINES.push(r); RID = r.id; render(); }
+function rRemove() { const r = rt(); if (r.id === 'sprint') return; if (RDEL !== r.id) { RDEL = r.id; render(); return; } ROUTINES = ROUTINES.filter(x => x.id !== r.id); RID = 'sprint'; RDEL = null; render(); }
+
+/* ---------- backup ---------- */
+const EXP = 'PHONERUNNER_EXPORT_V1:';
+function exportAll() { const t = EXP + JSON.stringify({ routines: ROUTINES, tasks: TASKS, habits: HABITS, day: DAY }), fb = $('expFb'), m = $('backupMsg');
+  const show = () => { fb.value = t; fb.style.display = 'block'; fb.select(); m.textContent = 'Clipboard unavailable: select and copy the text below.'; };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => { fb.style.display = 'none'; m.textContent = 'Copied export to clipboard.'; }, show); else show(); }
+function importAll() { const v = $('impBox').value.trim(), m = $('backupMsg'); let d;
+  if (!v.startsWith(EXP)) { m.textContent = 'That is not an export.'; return; }
+  try { d = JSON.parse(v.slice(EXP.length)); } catch (e) { m.textContent = 'Could not read that export.'; return; }
+  if (!d || !Array.isArray(d.routines) || !Array.isArray(d.tasks) || !Array.isArray(d.habits)) { m.textContent = 'The export is incomplete.'; return; }
+  if (!impPending) { impPending = true; m.textContent = 'This replaces all routines, tasks and habits. Tap Import again to confirm.'; return; }
+  impPending = false; ROUTINES = d.routines.some(r => r.id === 'sprint') ? d.routines : [defaultRoutines()[0], ...d.routines];
+  TASKS = d.tasks; HABITS = d.habits; DAY = d.day || 1; taskSeq = Math.max(0, ...TASKS.map(t => t.id)); habitSeq = Math.max(0, ...HABITS.map(h => h.id)); RID = 'sprint';
+  $('impBox').value = ''; m.textContent = 'Imported.'; render(); }
+
+/* ---------- saved data (survives reload and browser close) ---------- */
+function save() { try { localStorage.setItem('pr_v1', JSON.stringify({ state, T0, base, BP, skip: [...SKIP], mom: RUNMOM, tasks: TASKS, habits: HABITS, day: DAY, ts: taskSeq, hs: habitSeq, routines: ROUTINES, rid: RID, muted: MUTED })); } catch (e) {} }
+function restore() { const d = JSON.parse(localStorage.getItem('pr_v1') || 'null'); if (!d) return;
+  state = d.state || null; T0 = d.T0 || 0; base = d.base || 0; BP = d.BP || null; SKIP = new Set(d.skip || []); RUNMOM = d.mom || 0; TASKS = d.tasks || []; HABITS = d.habits || [];
+  DAY = d.day || 1; taskSeq = d.ts || 0; habitSeq = d.hs || 0; if (d.routines && d.routines.length) ROUTINES = d.routines; RID = d.rid || 'sprint'; MUTED = !!d.muted; }
+
+/* ---------- alerts: scheduled on the audio clock, so they sound with the page in the background ---------- */
+function chimeAtT(out, t, n) { const o = (f, tt, dur, vol) => { const c = actx.createOscillator(), g = actx.createGain(); c.type = 'sine'; c.frequency.value = f;
+    g.gain.setValueAtTime(0.0001, tt); g.gain.exponentialRampToValueAtTime(vol, tt + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, tt + dur); c.connect(g); g.connect(out); c.start(tt); c.stop(tt + dur + 0.05); };
+  if (n === 1) { o(659.25, t, 0.5, 0.2); return; } o(330, t, 0.55, 0.07); [659.25, 783.99, 987.77].forEach((f, i) => o(f, t + 0.6 + i * 0.28, 0.5, 0.25)); }
+function alertTimes(lay) {
+  const act = E.activeItem(state), b = act && lay.blocks.find(x => x.id === act.id); if (!act || !b) return [];
+  const T = m => T0 + m * 60000, out = []; let end = act.lockedEnd;
+  if (b.minChimeAt != null) out.push({ t: T(b.minChimeAt), n: 1 });
+  if (BP && BP.bufId === act.id && BP.cur) end = Math.min(end, BP.cur.start + BP.cur.duration);
+  if (end != null) { out.push({ t: T(end), n: 3 }); out.push({ t: T(end) + 30000, n: 3 }); } // the first chime and one repeat, no more
+  return out;
+}
+function armAlerts(lay) {
+  const times = alertTimes(lay), sig = MUTED + '|' + (actx ? actx.state : '') + '|' + times.map(x => Math.round(x.t / 1000) + ':' + x.n).join(',');
+  if (sig === armedSig) return; armedSig = sig;
+  if (runGain) { try { runGain.gain.value = 0; runGain.disconnect(); } catch (e) {} runGain = null; }
+  if (MUTED || !times.length || !actx) return;
+  try { runGain = actx.createGain(); runGain.connect(actx.destination);
+    times.forEach(x => { const d = (x.t - Date.now()) / 1000; if (d > 0.2) chimeAtT(runGain, actx.currentTime + d, x.n); }); } catch (e) {} // alerts already past are never played
+}
+async function syncWake() {
+  const want = !!state && !state.finished;
+  if (want && !wake && document.visibilityState === 'visible' && navigator.wakeLock && Date.now() - lastWake > 5000) {
+    lastWake = Date.now(); try { wake = await navigator.wakeLock.request('screen'); wake.addEventListener('release', () => { wake = null; }); } catch (e) {} }
+  else if (!want && wake) { try { await wake.release(); } catch (e) {} wake = null; }
+}
+
+function render() {
+  syncNow(); const setupOn = !state && tab === 'run';
+  $('setup').style.display = setupOn ? 'block' : 'none'; $('nav').style.display = 'grid';
+  $('tRun').className = tab === 'run' ? 'on' : ''; $('tEdit').className = tab === 'edit' ? 'on' : ''; $('tTasks').className = tab === 'tasks' ? 'on' : '';
+  if (setupOn) populateSetup();
+  let html = '';
+  if (state) { ensureBP(); const lay = E.layout(state, now); PLANS = bufferPlans(lay); armAlerts(lay); html = tab === 'run' ? runView(lay) : tab === 'edit' ? editView(lay) : tasksView(); }
+  else html = tab === 'tasks' ? tasksView() : tab === 'edit' ? routineEditor() : '';
+  $('app').innerHTML = (flashMsg ? `<div class="card late">${esc(flashMsg)}</div>` : '') + html; flashMsg = '';
+  if (DETAIL && $('detail')) $('detail').textContent = DETAIL;
+  save(); syncWake();
+}
+$('tRun').onclick = () => go('run'); $('tEdit').onclick = () => go('edit'); $('tTasks').onclick = () => go('tasks');
+try { restore(); } catch (e) {}
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+document.addEventListener('pointerdown', () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state !== 'running') actx.resume(); } catch (e) {} }, { passive: true });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { syncWake(); if (state) render(); } });
+setInterval(() => { if (state && (tab === 'run' || (tab === 'edit' && open === null))) render(); }, 1000);
+{ const r = rt(); setLen(r.id === 'sprint' ? 90 : Math.max(1, total(r))); setMode(r.mode || 'required'); syncEnd(); }
+render();
+{ const r = runAllTests(), p = r.filter(x => x.pass).length; $('selftest').textContent = `Engine scenarios: ${p} of ${r.length} pass`; }
+</script>
+</body>
+</html>
