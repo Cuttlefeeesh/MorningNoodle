@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner - Mockup 3</title>
+<title>Phone runner - Mockup 4</title>
 <style>
 :root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -34,7 +34,8 @@ input[type=number]{width:72px}
 .s{position:relative;height:100%;min-width:3px;overflow:hidden;border-right:1px solid var(--bg)}
 .s.past{opacity:.4}.s.now{box-shadow:inset 0 0 0 3px var(--txt)}
 .s.partial{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.35) 0 3px,transparent 3px 6px)}
-.s .fill{position:absolute;left:0;top:0;bottom:0;background:var(--prog);opacity:.65}
+.s .fill{position:absolute;left:0;top:0;bottom:0;background:#000;opacity:.3}
+.s.grey{background:repeating-linear-gradient(135deg,#3a3d40 0 4px,#2c2f32 4px 8px)!important}.s.rem{opacity:.55}
 #preset{width:100%;text-overflow:ellipsis}.row input[type=checkbox]{width:26px;height:26px;margin:4px}
 .mk{position:absolute;top:0;bottom:0;width:0;pointer-events:none}
 .mk.nowm{border-left:2px solid var(--txt)}.mk.orig{border-left:2px dashed var(--mut)}.mk.endm{border-left:4px solid var(--accent)}
@@ -97,7 +98,7 @@ const ENGINE = (function () {
     const type = spec.type;
     return {
       id: 'i' + s.nextId, type, kind: type === 'buf' ? (spec.kind || 'task') : 'work',
-      name: spec.name, dur: spec.dur, status: 'pending', spent: 0, activeSince: null
+      name: spec.name, dur: spec.dur, status: 'pending', spent: 0, activeSince: null, lockedEnd: null
     };
   }
 
@@ -119,11 +120,13 @@ const ENGINE = (function () {
   function layout(s, now) {
     const live = s.items.filter(i => i.status === 'pending' || i.status === 'active');
     const info = live.map(it => ({ it, base: baseRemaining(it, now), len: 0, hidden: false, live: true }));
-    const W = info.filter(x => !isBuf(x.it));
-    const B = info.filter(x => isBuf(x.it));
+    const fx = info.find(x => x.it.status === 'active' && x.it.lockedEnd !== null && x.it.lockedEnd !== undefined);
+    if (fx) { fx.base = Math.max(0, fx.it.lockedEnd - now); fx.len = fx.base; }
+    const W = info.filter(x => x !== fx && !isBuf(x.it));
+    const B = info.filter(x => x !== fx && isBuf(x.it));
     const Wsum = sum(W, x => x.base);
     const ref = referenceEnd(s);
-    const A = ref - now;
+    const A = ref - now - (fx ? fx.len : 0);
 
     for (;;) {
       const liveB = B.filter(x => x.live);
@@ -177,6 +180,15 @@ const ENGINE = (function () {
     };
   }
 
+  // Fixes the active block's end at the moment of an event; only events change it.
+  function relock(s, now) {
+    const a = activeItem(s); if (!a || now === undefined) return s;
+    a.lockedEnd = null;
+    const b = layout(s, now).blocks.find(x => x.id === a.id);
+    a.lockedEnd = now + (b ? b.len : a.dur);
+    return s;
+  }
+
   /* ---------- events (each returns { state, error }) ---------- */
   function activateNext(s, now) {
     const lay = layout(s, now);
@@ -184,7 +196,7 @@ const ENGINE = (function () {
     for (const b of lay.blocks) {
       const it = byId(s, b.id);
       if (b.hidden) { it.status = 'skipped'; continue; }     // hidden buffers up to the next visible item are passed over
-      it.status = 'active'; it.activeSince = now; activated = true; break;
+      it.status = 'active'; it.activeSince = now; relock(s, now); activated = true; break;
     }
     if (!activated) {
       s.items.forEach(i => { if (i.status === 'pending') i.status = 'skipped'; });
@@ -233,7 +245,7 @@ const ENGINE = (function () {
     s.items.splice(idx, 1);          // target is now at j - 1
     s.items.splice(j, 0, act);       // pushed item lands right after it
     const target = s.items[j - 1];
-    target.status = 'active'; target.activeSince = now;
+    target.status = 'active'; target.activeSince = now; relock(s, now);
     return { state: s, error: null };
   }
 
@@ -247,15 +259,15 @@ const ENGINE = (function () {
     if (s.finished) return { state: s, error: 'run finished' };
     const idx = Math.max(atIndex === undefined ? s.items.length : atIndex, frontier(s));
     s.items.splice(Math.min(idx, s.items.length), 0, makeItem(s, spec));
-    if (s.free) { s.history.push({ free: true, name: 'Saved time', from: s.free.since, to: now }); s.free = null; activateNext(s, now); }
+    if (s.free) { s.history.push({ free: true, name: 'Saved time', from: s.free.since, to: now }); s.free = null; activateNext(s, now); } else relock(s, now);
     return { state: s, error: null };
   }
-  function deleteItem(state, id) {
+  function deleteItem(state, id, now) {
     const s = clone(state);
     const it = byId(s, id);
     if (!it) return { state: s, error: 'no such item' };
     if (it.status !== 'pending') return { state: s, error: 'only items not yet started can be deleted' };
-    s.items = s.items.filter(i => i.id !== id);
+    s.items = s.items.filter(i => i.id !== id); relock(s, now);
     return { state: s, error: null };
   }
   function moveItem(state, id, dir, now) {
@@ -270,11 +282,11 @@ const ENGINE = (function () {
       return (r.error || activeItem(r.state).id !== id) ? { state: s, error: r.error || 'cannot move there' } : r;
     }
     if (k2 < 0 || k2 >= s.items.length || s.items[k2].status !== 'pending') return { state: s, error: 'cannot move there' };
-    [s.items[k], s.items[k2]] = [s.items[k2], s.items[k]];
+    [s.items[k], s.items[k2]] = [s.items[k2], s.items[k]]; relock(s, now);
     return { state: s, error: null };
   }
   // patch may hold name, dur; type/kind only for items not yet started. The active item keeps its time spent.
-  function updateItem(state, id, patch) {
+  function updateItem(state, id, patch, now) {
     const s = clone(state);
     const it = byId(s, id);
     if (!it) return { state: s, error: 'no such item' };
@@ -286,6 +298,7 @@ const ENGINE = (function () {
       if (patch.kind !== undefined) it.kind = patch.kind;
       it.kind = it.type === 'buf' ? (it.kind === 'break' ? 'break' : 'task') : 'work';
     }
+    relock(s, now);
     return { state: s, error: null };
   }
 
@@ -503,7 +516,7 @@ function runAllTests() {
     c.eq('Up on the first waiting item acts as push forward', pu.error === null && E.activeItem(pu.state).name === 'Make bed', true);
     c.ok('cannot move the active item', E.moveItem(s, E.activeItem(s).id, 1).error !== null);
 
-    r = E.updateItem(s, E.activeItem(s).id, { dur: 25 }); lay = E.layout(r.state, 6);
+    r = E.updateItem(s, E.activeItem(s).id, { dur: 25 }, 6); lay = E.layout(r.state, 6);
     c.near('lengthen the active item by 5: Pack lunch remaining', L(lay, 'Pack lunch').len, 25);
     c.near('lengthen the active item by 5: task buffer shrinks', L(lay, 'Task buffer').len, 10 * 14 / 15);
     c.near('lengthen the active item by 5: end stays 60', lay.projectedEnd, 60);
@@ -579,6 +592,23 @@ function runAllTests() {
     c.eq('completing at the end time finishes the run', done(one(), 20).finished, true);
   });
 
+  scenario('14. Locked block ends: the clock alone never reshuffles',
+    'Active buffer keeps its end while the clock runs; only events (or overrunning the whole block) change plans.', c => {
+    const mk = end => E.createRun({ items: [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'buf', kind: 'task', name: 'Buf', dur: 10 }, { type: 'est', name: 'Pack', dur: 20 }], mode: 'required', start: 0, requiredEnd: end });
+    let s = done(mk(60), 6);
+    [6, 12, 25, 39].forEach(t => { const lay = E.layout(s, t); c.near('growing buffer end at ' + t, L(lay, 'Buf').end, 40); c.near('Pack start at ' + t, L(lay, 'Pack').start, 40); });
+    s = done(mk(35), 10);
+    [10, 12, 15].forEach(t => c.near('shrunk buffer end at ' + t, L(E.layout(s, t), 'Buf').end, 15));
+    c.near('Pack unchanged by the clock', L(E.layout(s, 14), 'Pack').len, 20);
+    const lay = E.layout(s, 20);
+    c.near('overrun: buffer length 0', L(lay, 'Buf').len, 0);
+    c.near('overrun: Pack at floor', L(lay, 'Pack').len, 16);
+    c.near('overrun: over by', lay.overBy, 1);
+    const s2 = done(mk(60), 10), id = s2.items[2].id;
+    c.near('delete Pack at 20: buffer re-locked to 60', L(E.layout(E.deleteItem(s2, id, 20).state, 20), 'Buf').end, 60);
+    c.near('Pack to 30 min at 20: buffer re-locked to 30', L(E.layout(E.updateItem(s2, id, { dur: 30 }, 20).state, 20), 'Buf').end, 30);
+  });
+
   return results;
 }
 </script>
@@ -601,6 +631,7 @@ const PRESETS = {
     { type: 'buf', kind: 'break', name: 'Break', dur: 5 }, { type: 'est', name: 'Shoes and keys', dur: 5 }, { type: 'buf', kind: 'task', name: 'Extra buffer (0 default)', dur: 0 } ] }
 };
 const total = k => PRESETS[k].items.reduce((a, i) => a + i.dur, 0);
+let BP = null, SKIP = new Set(), RUNMOM = 0, HE = null, HD = null, HDEL = null;
 let state = null, now = 0, base = 0, undo = [], tab = 'run', open = null, segs = [], log = [], resetPending = false, mode = 'required';
 
 function clock(m) { let t = Math.floor(((base + m) % 1440 + 1440) % 1440 + 1e-6); let h = Math.floor(t / 60), mi = t % 60;
@@ -630,15 +661,17 @@ $('startBtn').onclick = () => {
   const s = hm($('startT').value); const len = lenNow();
   if (isNaN(s)) { $('setupErr').textContent = 'Set a start time.'; return; }
   if (mode === 'required' && len <= 0) { $('setupErr').textContent = 'Set a length greater than 0.'; return; }
-  $('setupErr').textContent = ''; base = s; now = 0; undo = []; log = []; open = null; tab = 'run';
+  $('setupErr').textContent = ''; base = s; now = 0; undo = []; log = []; open = null; tab = 'run'; BP = null; SKIP = new Set(); RUNMOM = 0;
   state = E.createRun({ items: clone(PRESETS[$('preset').value].items), mode, start: 0, requiredEnd: len });
   render();
 };
 setLen(total('test')); setMode('required'); syncEnd();
 
 /* ---------- actions ---------- */
-function snap() { undo.push({ state: clone(state), now, log: log.slice() }); if (undo.length > 100) undo.shift(); }
-function apply(fn) { snap(); const r = fn(); if (r.error) { undo.pop(); flash(r.error); } else state = r.state; render(); }
+function snap() { captureHE(); undo.push({ state: clone(state), now, log: log.slice(), bp: clone(BP), skip: [...SKIP], tasks: clone(TASKS), habits: clone(HABITS), day: DAY, mom: RUNMOM }); if (undo.length > 100) undo.shift(); }
+function doUndo() { if (!undo.length) return; const u = undo.pop(); state = u.state; now = u.now; log = u.log; BP = u.bp; SKIP = new Set(u.skip); TASKS = u.tasks; HABITS = u.habits; DAY = u.day; RUNMOM = u.mom; render(); }
+function apply(fn) { snap(); const r = fn(); if (r.error) { undo.pop(); flash(r.error); } else { state = r.state; afterEngine(); } render(); }
+function afterEngine() { const a = E.activeItem(state); if (!BP) return; if (a && a.id === BP.bufId) replanBP(); else { RUNMOM = BP.mom; BP = null; } }
 let flashMsg = ''; function flash(m) { flashMsg = m; }
 function addLog(m) { log.push(clock(now) + '  ' + m); if (log.length > 6) log.shift(); }
 function advance(dt) {
@@ -652,13 +685,15 @@ function advance(dt) {
 }
 function itemAct(kind, id) {
   if (kind === 'up') apply(() => E.moveItem(state, id, -1, now)); else if (kind === 'down') apply(() => E.moveItem(state, id, 1, now));
-  else if (kind === 'del') { open = null; apply(() => E.deleteItem(state, id)); }
+  else if (kind === 'del') { open = null; apply(() => E.deleteItem(state, id, now)); }
 }
 const go = t => { tab = t; render(); };
 function pick(i) { const s = segs[i]; if (!s) return; let x;
   if (s.free) x = `Saved time ${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`;
-  else { const it = s.it; x = `${it.name}. ` + (s.past ? `${s.partial ? 'Pushed forward after' : 'Done after'} ${fm(s.to - s.from)} min, ${clock(s.from)} to ${clock(s.to)}.` : s.now ? `Running since ${clock(s.from)}, ${fm(s.elapsed)} min so far.` : `${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`);
-    const pl = PLANS[it.id]; if (!s.past && pl && pl.length) x += ' Suggested: ' + pl.map(t => t.name).join(', ') + '.'; }
+  else { const it = s.it; x = `${s.sub || it.name}. ` + (s.past ? `${s.partial ? 'Pushed forward after' : 'Done after'} ${fm(s.to - s.from)} min, ${clock(s.from)} to ${clock(s.to)}.` : s.now ? `Running since ${clock(s.from)}, ${fm(s.elapsed)} min so far.` : `${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`);
+    const pl = PLANS[it.id]; if (!s.past && !s.sub && pl && pl.length) x += ' Suggested: ' + pl.map(t => t.name).join(', ') + '.'; }
+  if (s.sub && s.it.lockedEnd != null) x += ' Buffer ends ' + clock(s.it.lockedEnd) + '.';
+  if (s.bufEnd != null) x += ' Task buffer ends ' + clock(s.bufEnd) + '.';
   $('detail').textContent = x; }
 function resetRun() { if (!resetPending) { resetPending = true; render(); setTimeout(() => { resetPending = false; if (state) render(); }, 4000); return; } resetPending = false; state = null; render(); }
 
@@ -670,21 +705,25 @@ function runView(lay) {
   else if (state.free) { const left = Math.max(0, ref - now);
     cur = `<div class="card cur"><span class="chip" style="background:var(--brk)">Saved time</span><div class="name">Nothing scheduled</div><div class="big">${left > 0 ? mmss(left) : 'End time reached'}</div><div class="mut">${left > 0 ? 'left until the end time. Add an item on the Edit tab, or finish.' : 'The routine can be finished now.'}</div><button class="pri" style="min-height:56px;width:100%" onclick="apply(()=>E.finishRun(state,now))">Finish routine</button></div>`; }
   else if (act.type === 'buf' && act.kind === 'task') { cur = taskBufferCard(act, b); }
-  else { const over = now - act.activeSince - act.dur, inMin = b.minChimeAt !== null;
+  else { const over = now - act.lockedEnd, inMin = b.minChimeAt !== null;
     cur = `<div class="card cur">${chip(act)}<div class="name">${esc(act.name)}</div><div class="big">${b.len > 0 ? mmss(b.len) : '+' + fm(Math.max(0, over)) + ' min over'}</div><div class="mut">${b.len > 0 ? 'left in this block' : 'past its time'}, ends ${clock(b.end)}</div>`
       + (act.spent > 0 ? `<div class="mut">${fm(act.spent)} min already spent on it earlier (not credited to this block)</div>` : '')
       + (act.type === 'min' ? `<div class="mut">${inMin ? 'Single chime in ' + mmss(b.minChimeAt - now) + ' when total time reaches ' + fm(act.dur) + ' min' : 'Minimum of ' + fm(act.dur) + ' min already reached'}</div>` : '')
       + `<button class="pri" style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.complete(state,now))">Done</button><button style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.pushForward(state,now))">Push forward</button></div>`; }
   segs = [];
   state.history.forEach(h => segs.push(h.free ? { from: h.from, to: h.to, free: true, past: true } : { from: h.from, to: h.to, it: itemById(h.id), past: true, partial: h.partial }));
+  let bufEnd = null;
   lay.blocks.forEach(x => { if (x.hidden) return; const it = itemById(x.id);
-    segs.push(x.status === 'active' ? { from: act.activeSince, to: x.end, it, now: true, elapsed: now - act.activeSince } : { from: x.start, to: x.end, it }); });
+    if (x.status === 'active') {
+      if (BP && BP.bufId === x.id) { subSegs(it).forEach(q => segs.push(q)); bufEnd = it.lockedEnd; }
+      else segs.push({ from: act.activeSince, to: x.end, it, now: true, elapsed: now - act.activeSince });
+    } else { segs.push({ from: x.start, to: x.end, it, bufEnd }); bufEnd = null; } });
   if (state.free) segs.push({ from: state.free.since, to: Math.max(ref, now), free: true, now: true, elapsed: now - state.free.since });
   else if (!state.finished && lay.freeTail > 0.05) segs.push({ from: lay.projectedEnd, to: ref, free: true });
   const endAll = Math.max(ref, now, ...segs.map(s => s.to)), span = Math.max(1, endAll), pc = m => m / span * 100;
   const bar = segs.map((s, i) => { const w = Math.max(0.3, (s.to - s.from) / span * 100);
     const fill = s.now ? `<div class="fill" style="width:${Math.min(100, s.to > s.from ? s.elapsed / (s.to - s.from) * 100 : 100)}%"></div>` : '';
-    return `<div class="s${s.past ? ' past' : ''}${s.now && !s.free ? ' now' : ''}${s.partial ? ' partial' : ''}" style="width:${w}%;background:${s.free ? 'var(--brk)' : colorFor(s.it)}" onclick="pick(${i})">${fill}</div>`; }).join('');
+    return `<div class="s${s.past ? ' past' : ''}${s.now && !s.free ? ' now' : ''}${s.partial ? ' partial' : ''}${s.grey ? ' grey' : ''}${s.rem ? ' rem' : ''}" style="width:${w}%;background:${s.free ? 'var(--brk)' : colorFor(s.it)}" onclick="pick(${i})">${fill}</div>`; }).join('');
   const pe = state.finished ? ref : lay.projectedEnd, moved = Math.abs(pe - ref) > 0.5, late = pe - ref > 0.5, early = ref - pe > 0.5 && !state.free;
   const endHtml = (moved && !state.finished && !state.free) ? `<div class="endbig ${late ? 'late' : 'early'}">${clock(pe)}</div><div class="mut">was ${clock(ref)}</div>` : `<div class="endbig">${clock(ref)}</div><div class="mut">${state.mode === 'required' ? 'required' : 'estimated'}</div>`;
   return cur + `<div class="card"><h2>Timeline</h2><div class="ends"><div><div class="mut">Now</div><div class="nowbig">${clock(now)}</div></div><div style="text-align:right">${endHtml}</div></div>`
@@ -692,90 +731,206 @@ function runView(lay) {
     + (moved && !state.free ? `<div class="mk orig" style="left:calc(6px + (100% - 12px) * ${pc(ref) / 100})"></div>` : '') + `<div class="mk endm${late ? ' late' : early ? ' early' : ''}" style="left:calc(6px + (100% - 12px) * ${pc(Math.min(pe, endAll)) / 100})"></div></div>`
     + `<div class="detail" id="detail"></div><div class="legend"><span><span class="chip" style="background:var(--est)">&nbsp;</span> Estimate</span><span><span class="chip" style="background:var(--min)">&nbsp;</span> Minimum</span><span><span class="chip" style="background:var(--task)">&nbsp;</span> Task buffer</span><span><span class="chip" style="background:var(--brk)">&nbsp;</span> Break buffer or saved time</span></div>`
     + `</div>`
-    + `<div class="card"><h2>Fake clock</h2>${[[.5, '+30 s'], [1, '+1 min'], [5, '+5 min'], [15, '+15 min']].map(([d, l]) => `<button onclick="advance(${d})">${l}</button>`).join('')}<button onclick="(function(){if(!undo.length)return;const u=undo.pop();state=u.state;now=u.now;log=u.log;render()})()">Undo</button>`
+    + `<div class="card"><h2>Fake clock</h2>${[[.5, '+30 s'], [1, '+1 min'], [5, '+5 min'], [15, '+15 min']].map(([d, l]) => `<button onclick="advance(${d})">${l}</button>`).join('')}<button onclick="doUndo()">Undo</button>`
     + `<div id="log">${esc(log.join('\n')) || 'Chime events appear here.'}</div></div>`
     + `<button onclick="resetRun()">${resetPending ? 'Confirm: discard this run?' : 'Back to setup'}</button>`;
 }
 /* ---------- tasks and habits (mockup data; scoring ported from routine18_4) ---------- */
 let DAY = 60, PLANS = {}, taskSeq = 20, habitSeq = 20;
-const TASKS = [
-  { id: 1, name: 'Email landlord about parking', dur: 5, urg: 80, imp: 3, checked: false },
-  { id: 2, name: 'Book dentist', dur: 5, urg: 30, imp: 2, checked: false },
-  { id: 3, name: 'Pay credit card', dur: 5, urg: 80, imp: 3, checked: false },
-  { id: 4, name: 'Fix bike light', dur: 15, urg: 30, imp: 2, checked: false },
-  { id: 5, name: 'Draft class outline', dur: 30, urg: 30, imp: 2, checked: false },
-  { id: 6, name: 'Plan weekend ride route', dur: 30, urg: 20, imp: 1, checked: false },
-  { id: 7, name: 'Sort receipts for taxes', dur: 60, urg: 20, imp: 1, checked: false }];
-const HABITS = [
+let TASKS = [
+  { id: 1, name: 'Email landlord about parking', dur: 5, urg: 80, utype: 'urgent', imp: 3, checked: false },
+  { id: 2, name: 'Book dentist', dur: 5, urg: 30, utype: 'sooner', imp: 2, checked: false },
+  { id: 3, name: 'Pay credit card', dur: 5, urg: 80, utype: 'urgent', imp: 3, checked: false },
+  { id: 4, name: 'Fix bike light', dur: 15, urg: 30, utype: 'sooner', imp: 2, checked: false },
+  { id: 5, name: 'Draft class outline', dur: 30, urg: 30, utype: 'sooner', imp: 2, checked: false },
+  { id: 6, name: 'Plan weekend ride route', dur: 30, urg: 20, utype: 'whenever', imp: 1, checked: false },
+  { id: 7, name: 'Sort receipts for taxes', dur: 60, urg: 20, utype: 'whenever', imp: 1, checked: false }];
+let HABITS = [
   { id: 1, name: 'Flashcards', dur: 10, X: 1, Y: 1, Z: 1, imp: 2, start: 55, done: [59] },
   { id: 2, name: 'Stretch', dur: 10, X: 1, Y: 2, Z: 1, imp: 2, start: 55, done: [58] },
   { id: 3, name: 'Water plants', dur: 5, X: 1, Y: 7, Z: 1, imp: 1, start: 40, done: [51] },
   { id: 4, name: 'Deep clean kitchen', dur: 30, X: 1, Y: 14, Z: 1, imp: 2, start: 20, done: [30] },
   { id: 5, name: 'Call family', dur: 15, X: 1, Y: 7, Z: 1, imp: 3, start: 40, done: [57] },
-  { id: 6, name: 'Practice guitar', dur: 15, X: 3, Y: 7, Z: 1, imp: 2, start: 55, done: [] }];
+  { id: 6, name: 'Practice guitar', dur: 15, X: 3, Y: 7, Z: 1, imp: 2, start: 55, done: [] },
+  { id: 7, name: 'Duolingo lesson', dur: 10, X: 3, Y: 1, Z: 0, imp: 2, start: 55, done: [] },
+  { id: 8, name: 'Cold plunge', dur: 5, X: 1, Y: 3, Z: 1, imp: 1, start: 30, done: [40], paused: true }];
 const cl = x => Math.min(1, Math.max(0, x));
+const sorted = t => t.dur != null && t.urg != null && t.imp != null;
 function hState(h) {
   const count = h.done.filter(d => d > DAY - h.Y && d <= DAY).length, n = Math.max(0, h.X - count);
   const last = h.done.length ? Math.max(...h.done) : null, D = (last !== null ? last : h.start) + h.Y, m = Math.max(1, h.Y / h.X);
   const lateness = Math.max(0, DAY - D), misses = Math.floor(lateness / m + 1e-9), status = misses === 0 ? 'a' : misses === 1 ? 'n' : 'i';
-  const cool = h.Z === 0 || last === null || DAY >= last + h.Z, showing = n > 0 && cool, doneToday = h.done.filter(d => d === DAY).length;
+  const cool = h.Z === 0 || last === null || DAY >= last + h.Z, showing = !h.paused && n > 0 && cool, doneToday = h.done.filter(d => d === DAY).length;
   return { count, n, D, m, lateness, status, showing, doneToday };
 }
 function hUrg(h, s) { if (s.status === 'i') return 20; if (s.status === 'n') return 80 + 20 * cl((s.lateness - s.m + 1) / s.m);
   return 20 + 60 * cl(1 - (s.D - (s.n - 1) * h.Z - DAY) / h.Y); }
 const hImp = (h, s) => h.imp - Math.min(s.count, h.X - 1) / h.X;
 const freq = h => h.X === 1 ? (h.Y === 1 ? 'daily' : `every ${h.Y} days`) : `${h.X} times in ${h.Y} days`;
+function freqText(X, Y, Z) { let t = X === 1 ? (Y === 1 ? 'once a day' : `once every ${Y} days`) : (Y === 1 ? `${X} times a day` : `${X} times in ${Y} days`);
+  if (X > 1 && Z > 0) t += `, at least ${Z} ${Z === 1 ? 'day' : 'days'} apart`; return t; }
+function chkFreq(X, Y, Z) { if (!(X >= 1) || !(Y >= 1) || !(Z >= 0)) return 'X and Y must be 1 or more, Z 0 or more.';
+  if (X > Y && Z !== 0) return 'Z has to be 0 when X is more than Y.';
+  if (Z >= 1 && X > 1 && (X - 1) * Z > Y - 1) return `Doesn't fit: the largest Z is ${Math.floor((Y - 1) / (X - 1))}.`; return ''; }
+
+/* ---------- shared pool and task-buffer planning ---------- */
 function taskPool() {
-  const p = TASKS.filter(t => !t.checked).map(t => ({ kind: 'task', ref: t, name: t.name, duration: t.dur, score: t.urg + t.imp * 15 }));
-  HABITS.forEach(h => { const s = hState(h); if (s.showing) p.push({ kind: 'habit', ref: h, name: h.name, duration: h.dur, score: hUrg(h, s) + hImp(h, s) * 15 }); });
+  const p = [];
+  TASKS.forEach(t => { if (!t.checked && sorted(t)) p.push({ kind: 'task', key: 't' + t.id, ref: t, name: t.name, duration: t.dur, score: t.urg + t.imp * 15, low: SKIP.has('t' + t.id) }); });
+  HABITS.forEach(h => { const s = hState(h); if (s.showing) p.push({ kind: 'habit', key: 'h' + h.id, ref: h, name: h.name, duration: h.dur, score: hUrg(h, s) + hImp(h, s) * 15, low: SKIP.has('h' + h.id) }); });
   return p;
 }
+// Tasks skipped this run (low) are only picked when nothing else is left, like the runner.
 function simTasks(pool, mom, budget) {
-  let p = pool.slice(), rem = budget; const out = [];
+  const mom0 = mom; let p = pool.slice(), rem = budget; const out = [];
   while (rem > 1e-9 && p.length) {
-    const qw = p.filter(t => t.duration <= 5).sort((a, b) => b.score - a.score);
-    const c = (qw.length && mom < 3) ? qw[0] : p.slice().sort((a, b) => b.score - a.score)[0];
+    const w = p.some(t => !t.low) ? p.filter(t => !t.low) : p;
+    const qw = w.filter(t => t.duration <= 5).sort((a, b) => b.score - a.score);
+    const c = (qw.length && mom < 3) ? qw[0] : w.slice().sort((a, b) => b.score - a.score)[0];
     out.push(c); p = p.filter(t => t !== c); rem -= c.duration; mom = c.duration <= 5 ? mom + 1 : 0;
   }
-  let left = budget; const kept = out.filter((t, i) => { if (i === 0 || t.duration <= left + 1e-9) { left -= t.duration; return true; } return false; });
-  return { kept, mom: kept.length && kept[kept.length - 1].duration <= 5 ? mom : 0 };
+  let left = budget; const kept = out.filter(t => t.duration <= left + 1e-9 ? (left -= t.duration, true) : false);
+  let m = mom0; kept.forEach(t => { m = t.duration <= 5 ? m + 1 : 0; });
+  return { kept, mom: m };
 }
-// Fills each task buffer from the shared pool, in routine order, like the runner's task-time blocks.
+const strip = c => ({ kind: c.kind, id: c.ref.id, key: c.key, name: c.name, duration: c.duration });
+const lookup = c => c.kind === 'task' ? TASKS.find(t => t.id === c.id) : HABITS.find(h => h.id === c.id);
+function curCount(c) { const o = lookup(c); return !o ? 0 : c.kind === 'task' ? (o.checked ? 1 : 0) : hState(o).doneToday; }
+function completeTask(c) { const o = lookup(c); if (!o) return; if (c.kind === 'task') o.checked = true; else o.done.push(DAY); }
+
+// Buffers that are not active yet are planned from the shared pool; the active one uses its stored plan.
 function bufferPlans(lay) {
   let pool = taskPool(), mom = 0, prev = null; const plans = {};
   lay.blocks.forEach(b => {
     if (b.hidden) return;
     if (b.type === 'buf' && b.kind === 'task') {
-      const start = prev === 'break' ? 0 : (prev === 'est' || prev === 'min') ? 3 : mom;
-      const r = simTasks(pool, start, b.len); plans[b.id] = r.kept; pool = pool.filter(t => !r.kept.includes(t)); mom = r.mom;
+      if (b.status === 'active' && BP && BP.bufId === b.id) {
+        plans[b.id] = [BP.cur, ...BP.upcoming].filter(Boolean);
+        pool = pool.filter(t => !plans[b.id].some(x => x.key === t.key)); mom = BP.mom;
+      } else {
+        const start = prev === 'break' ? 0 : (prev === 'est' || prev === 'min') ? 3 : mom;
+        const r = simTasks(pool, start, b.len); plans[b.id] = r.kept; pool = pool.filter(t => !r.kept.includes(t)); mom = r.mom;
+      }
     } else if (b.type === 'buf') mom = 0;
     prev = b.type === 'buf' ? b.kind : b.type;
   });
   return plans;
 }
-function checkP(kind, id) { if (kind === 'task') TASKS.find(t => t.id === id).checked = true; else HABITS.find(h => h.id === id).done.push(DAY); render(); }
-function taskToggle(id, v) { TASKS.find(t => t.id === id).checked = v; render(); }
-function habitToggle(id, v) { const h = HABITS.find(x => x.id === id); if (v) h.done.push(DAY); else { const i = h.done.lastIndexOf(DAY); if (i >= 0) h.done.splice(i, 1); } render(); }
-function nextDay() { DAY++; TASKS.forEach(t => { if (t.checked) t.done = true; }); render(); }
-function addTaskUI() { const n = $('tkName').value.trim(); if (!n) return;
-  TASKS.push({ id: ++taskSeq, name: n, dur: Math.max(1, +$('tkDur').value || 15), urg: +$('tkUrg').value, imp: +$('tkImp').value, checked: false }); render(); }
-function taskBufferCard(act, b) {
-  const pl = PLANS[act.id] || [], c = pl[0];
-  return `<div class="card cur">${chip(act)}<div class="name">${c ? `<input type="checkbox" style="width:30px;height:30px;vertical-align:middle" onchange="checkP('${c.kind}',${c.ref.id})"> ${esc(c.name)}` : 'Nothing to suggest'}</div>`
-    + `<div class="big">${mmss(b.len)}</div><div class="mut">left in this buffer, ends ${clock(b.end)}${c ? ' · ' + fm(c.duration) + ' min task' : ''}</div>`
-    + (pl.length > 1 ? `<div class="mut" style="margin-top:6px">Then: ${pl.slice(1).map(t => esc(t.name)).join(', ')}</div>` : '')
-    + `<button class="pri" style="min-height:56px;width:calc(50% - 4px);margin-top:8px" onclick="apply(()=>E.complete(state,now))">Done</button><button style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.pushForward(state,now))">Push forward</button></div>`;
+function ensureBP() {
+  const act = state && E.activeItem(state);
+  if (!act || act.type !== 'buf' || act.kind !== 'task' || (BP && BP.bufId === act.id)) return;
+  const idx = state.items.indexOf(act); let p = null;
+  for (let k = idx - 1; k >= 0; k--) if (state.items[k].status === 'done') { p = state.items[k]; break; }
+  BP = { bufId: act.id, mom: !p ? 0 : p.type === 'buf' ? (p.kind === 'break' ? 0 : RUNMOM) : 3, done: [], cur: null, upcoming: [] };
+  replanBP();
 }
+// Runs only at events (activation, task done / pushed / unchecked, edits). The current task stays pinned.
+function replanBP() {
+  const act = state && E.activeItem(state);
+  if (!BP || !act || act.id !== BP.bufId) return;
+  let c = BP.cur;
+  if (c && !lookup(c)) BP.cur = c = null;
+  if (c && curCount(c) > c.cnt0) { BP.done.push({ name: c.name, key: c.key, from: c.start, to: now }); BP.mom = c.duration <= 5 ? BP.mom + 1 : 0; BP.cur = c = null; }
+  let pool = taskPool(), mom = BP.mom, t0 = now;
+  if (c) { pool = pool.filter(t => t.key !== c.key); mom = c.duration <= 5 ? mom + 1 : 0; t0 = Math.max(now, c.start + c.duration); }
+  const list = simTasks(pool, mom, Math.max(0, act.lockedEnd - t0)).kept.map(strip);
+  if (!c && list.length) { BP.cur = { ...list.shift(), start: now }; BP.cur.cnt0 = curCount(BP.cur); }
+  BP.upcoming = list;
+}
+function subSegs(it) {
+  const out = [], le = it.lockedEnd;
+  BP.done.forEach(d => out.push({ from: d.from, to: d.to, it, sub: d.name, past: true, partial: d.partial }));
+  let t = BP.done.length ? BP.done[BP.done.length - 1].to : it.activeSince;
+  if (BP.cur) {
+    const c = BP.cur, to = Math.max(c.start + c.duration, now);
+    if (c.start > t + 0.05) out.push({ from: t, to: c.start, it, sub: 'Buffer remainder', rem: true });
+    out.push({ from: c.start, to, it, sub: c.name, now: true, elapsed: now - c.start }); t = to;
+  }
+  BP.upcoming.forEach(u => { if (t >= le - 1e-6) return; const full = t + u.duration, to = Math.min(full, le);
+    out.push({ from: t, to, it, sub: u.name, grey: full > le + 1e-6 }); t = to; });
+  if (le - t > 0.05) out.push({ from: t, to: le, it, sub: 'Buffer remainder', rem: true });
+  return out;
+}
+function bufDone() { const c = BP && BP.cur; if (!c) { apply(() => E.complete(state, now)); return; } snap(); completeTask(c); replanBP(); render(); }
+function bufPush() { const c = BP && BP.cur; if (!c) return; snap(); SKIP.add(c.key); BP.done.push({ name: c.name, key: c.key, from: c.start, to: now, partial: true }); BP.cur = null; replanBP(); render(); }
+function taskBufferCard(act) {
+  const c = BP.cur, le = act.lockedEnd, left = Math.max(0, le - now), tl = c ? c.start + c.duration - now : 0;
+  let t = Math.max(now, c ? c.start + c.duration : now);
+  const up = BP.upcoming.filter(u => (t += u.duration) <= le + 1e-6).map(u => esc(u.name)).join(', ');
+  const big = c ? (tl >= 0 ? mmss(tl) : '+' + fm(-tl) + ' min over') : (left > 0 ? mmss(left) : 'Time is up');
+  return `<div class="card cur">${chip(act)}<div class="name">${c ? esc(c.name) : 'Nothing fits the time left'}</div><div class="big">${big}</div>`
+    + `<div class="mut">${c ? fm(c.duration) + ' min task · ' : ''}buffer ends ${clock(le)}, ${fm(left)} min left</div>`
+    + (up ? `<div class="mut" style="margin-top:6px">Then: ${up}</div>` : '') + (c ? '' : '<div class="mut">Tap Done to move on.</div>')
+    + `<button class="pri" style="min-height:56px;width:calc(50% - 4px);margin-top:8px" onclick="bufDone()">Done</button><button style="min-height:56px;width:calc(50% - 4px)" ${c ? '' : 'disabled'} onclick="bufPush()">Push forward</button>`
+    + (c ? `<button style="width:100%" onclick="apply(()=>E.complete(state,now))">End buffer early</button>` : '') + `</div>`;
+}
+
+/* ---------- tasks tab actions ---------- */
+function afterChange() { replanBP(); render(); }
+function taskToggle(id, v) { snap(); TASKS.find(t => t.id === id).checked = v; if (!v && BP) { const k = BP.done.map(d => d.key).lastIndexOf('t' + id); if (k >= 0) BP.done.splice(k, 1); } afterChange(); }
+function habitToggle(id, v) { snap(); const h = HABITS.find(x => x.id === id);
+  if (v) h.done.push(DAY); else { const i = h.done.lastIndexOf(DAY); if (i >= 0) h.done.splice(i, 1); if (BP) { const k = BP.done.map(d => d.key).lastIndexOf('h' + id); if (k >= 0) BP.done.splice(k, 1); } }
+  afterChange(); }
+function nextDay() {
+  snap(); DAY++;
+  TASKS = TASKS.filter(t => !t.checked);
+  TASKS.forEach(t => { if (t.imp == null || t.urg == null) return;
+    if (t.utype === 'sooner') t.urg = Math.min(t.urg + t.imp, 100); else if (t.utype === 'urgent') t.urg = Math.min(t.urg + 2 * t.imp, 100); });
+  const rank = h => h.paused ? 3 : ({ n: 0, a: 1, i: 2 })[hState(h).status];
+  HABITS = HABITS.map((h, i) => ({ h, i, r: rank(h) })).sort((a, b) => a.r - b.r || a.i - b.i).map(x => x.h);
+  afterChange(); }
+function addTaskUI() { const n = $('tkName').value.trim(); if (!n) return; snap();
+  TASKS.push({ id: ++taskSeq, name: n, dur: null, urg: null, utype: null, imp: null, checked: false }); afterChange(); }
+function nextUnsorted() { const u = TASKS.filter(t => !t.checked && !sorted(t)); return u.find(t => t.dur == null) || u.find(t => t.urg == null) || u.find(t => t.imp == null) || null; }
+function setTaskField(id, f, v) { snap(); const t = TASKS.find(x => x.id === id);
+  if (f === 'dur') t.dur = v; else if (f === 'urg') { t.utype = v; t.urg = { urgent: 80, sooner: 30, whenever: 20 }[v]; } else t.imp = v; afterChange(); }
+function markLong(id) { snap(); const t = TASKS.find(x => x.id === id); t.orig = t.name; t.name = 'Identify the first step of ' + t.name; t.dur = 5; afterChange(); }
+function sortCard() {
+  const t = nextUnsorted(); if (!t) return '';
+  const b = (l, f, v) => `<button onclick="setTaskField(${t.id},'${f}',${typeof v === 'string' ? `'${v}'` : v})">${l}</button>`;
+  if (t.dur == null) return `<div class="detail"><b>Set duration</b><br>${esc(t.name)}<br>${b('5 min', 'dur', 5)}${b('15 min', 'dur', 15)}${b('30 min', 'dur', 30)}<button onclick="markLong(${t.id})">Long (1 hr+)</button></div>`;
+  const nm = esc(t.orig || t.name);
+  if (t.urg == null) return `<div class="detail"><b>Set urgency</b><br>${nm}<br>${b('Urgent', 'urg', 'urgent')}${b('Sooner is Better', 'urg', 'sooner')}${b('Whenever', 'urg', 'whenever')}</div>`;
+  return `<div class="detail"><b>Set importance</b><br>${nm}<br>${b('Must-do', 'imp', 3)}${b('Builds the life I want to live', 'imp', 2)}${b('Benefits those around me', 'imp', 2)}${b('No big deal either way', 'imp', 1)}</div>`;
+}
+
+/* ---------- habit editor ---------- */
+function captureHE() { if (HE === null || !$('heName')) return; HD = { name: $('heName').value, dur: $('heDur').value, imp: $('heImp').value, X: $('heX').value, Y: $('heY').value, Z: $('heZ').value }; }
+function heHTML(h) {
+  const n = h === null, d = HD || (n ? { name: '', dur: '15', imp: '2', X: '1', Y: '1', Z: '1' } : { name: h.name, dur: String(h.dur), imp: String(h.imp), X: String(h.X), Y: String(h.Y), Z: String(h.Z) });
+  const num = (id, l, v, w, extra) => `<label>${l}<input id="${id}" type="number" min="${extra}" value="${esc(v)}" style="width:${w}px" oninput="heLive()"></label>`;
+  const ex = n ? '' : `<button onclick="heDelete(${h.id})">${HDEL === h.id ? 'Confirm delete?' : 'Delete'}</button><button onclick="hePause(${h.id})">${h.paused ? 'Resume' : 'Pause'}</button>`;
+  return `<div class="ed" style="background:var(--bg);border-radius:8px;padding:8px;margin:4px 0"><label>Name<input id="heName" value="${esc(d.name)}" style="width:170px"></label>`
+    + num('heDur', 'Minutes', d.dur, 64, 1) + `<label>Importance<select id="heImp">${[['3', 'Must-do'], ['2', 'Builds life / benefits others'], ['1', 'No big deal']].map(([v, l]) => `<option value="${v}"${d.imp === v ? ' selected' : ''}>${l}</option>`).join('')}</select></label>`
+    + num('heX', 'X (times)', d.X, 60, 1) + num('heY', 'Y (days)', d.Y, 60, 1) + num('heZ', 'Z (days apart)', d.Z, 60, 0)
+    + `<div class="mut" id="heSum" style="width:100%"></div><div class="late" id="heErr" style="width:100%"></div><button class="pri" onclick="heSave()">Save</button><button onclick="heCancel()">Cancel</button>${ex}</div>`;
+}
+function heLive() { if (!$('heX')) return; const X = parseInt($('heX').value), Y = parseInt($('heY').value), Z = parseInt($('heZ').value), p = chkFreq(X, Y, Z);
+  $('heErr').textContent = p; $('heSum').textContent = p ? '' : 'Means: ' + freqText(X, Y, Z) + '.'; }
+function openHE(id) { HE = HE === id ? null : id; HD = null; HDEL = null; render(); }
+function heCancel() { HE = null; HD = null; HDEL = null; render(); }
+function heSave() {
+  const name = $('heName').value.trim(), dur = parseFloat($('heDur').value), imp = parseInt($('heImp').value), X = parseInt($('heX').value), Y = parseInt($('heY').value), Z = parseInt($('heZ').value);
+  const err = !name ? 'Enter a name.' : !(dur >= 1) ? 'Minutes must be at least 1.' : chkFreq(X, Y, Z);
+  if (err) { $('heErr').textContent = err; return; }
+  snap(); const f = { name, dur, imp, X, Y, Z };
+  if (HE === 'new') { const h = { id: ++habitSeq, ...f, start: DAY, done: [], paused: false }; let i = HABITS.length;
+    while (i > 0 && (HABITS[i - 1].paused || hState(HABITS[i - 1]).status === 'i')) i--; HABITS.splice(i, 0, h);
+  } else Object.assign(HABITS.find(h => h.id === HE), f);
+  HE = null; HD = null; HDEL = null; afterChange();
+}
+function hePause(id) { snap(); const h = HABITS.find(x => x.id === id); h.paused = !h.paused; afterChange(); }
+function heDelete(id) { if (HDEL !== id) { HDEL = id; render(); return; } snap(); HABITS = HABITS.filter(h => h.id !== id); HE = null; HD = null; HDEL = null; afterChange(); }
+
 function tasksView() {
   const col = { a: 'var(--task)', n: '#e6c04a', i: '#8f6b5f' };
-  const hr = HABITS.map(h => { const s = hState(h), tot = s.doneToday + (s.showing ? (h.Z === 0 ? s.n : 1) : 0); let bx = '';
+  const hr = (HE === 'new' ? heHTML(null) : '') + HABITS.map(h => { const s = hState(h), tot = h.paused ? 0 : s.doneToday + (s.showing ? (h.Z === 0 ? s.n : 1) : 0); let bx = '';
     for (let i = 0; i < tot; i++) bx += `<input type="checkbox" ${i < s.doneToday ? 'checked' : ''} onchange="habitToggle(${h.id},this.checked)">`;
-    return `<div class="row" style="border-left:3px solid ${col[s.status]};padding-left:8px"><div class="main"><div>${esc(h.name)}</div><div class="tm">${freq(h)} · ${h.dur} min · ${s.showing ? 'score ' + Math.round(hUrg(h, s) + hImp(h, s) * 15) : 'not due'}</div></div><div>${bx}</div></div>`; }).join('');
-  const tr = TASKS.filter(t => !t.done).slice().sort((a, b) => a.checked - b.checked || (b.urg + b.imp * 15) - (a.urg + a.imp * 15)).map(t =>
-    `<div class="row${t.checked ? ' dim' : ''}"><input type="checkbox" ${t.checked ? 'checked' : ''} onchange="taskToggle(${t.id},this.checked)"><div class="main"><div>${esc(t.name)}</div><div class="tm">${t.dur} min · ${t.urg >= 80 ? 'urgent' : t.urg >= 30 ? 'sooner' : 'whenever'} · score ${t.urg + t.imp * 15}</div></div></div>`).join('');
-  return `<div class="card"><h2>Habits</h2>${hr}<div class="mut" style="margin-top:6px">Day ${DAY} <button onclick="nextDay()">Next day</button></div></div>`
-    + `<div class="card"><h2>Tasks</h2>${tr}<div class="ed" style="border-top:1px solid var(--line);margin-top:6px"><label>Name<input id="tkName" style="width:150px"></label><label>Min<input id="tkDur" type="number" value="15"></label>`
-    + `<label>Urgency<select id="tkUrg"><option value="80">Urgent</option><option value="30" selected>Sooner</option><option value="20">Whenever</option></select></label><label>Importance<select id="tkImp"><option value="3">Must-do</option><option value="2" selected>Builds life</option><option value="1">No big deal</option></select></label><button class="pri" onclick="addTaskUI()">Add</button></div></div>`;
+    return `<div class="row${h.paused ? ' dim' : ''}" style="border-left:3px solid ${h.paused ? '#777' : col[s.status]};padding-left:8px"><div class="main"><div>${esc(h.name)}</div><div class="tm">${freq(h)} · ${h.dur} min · ${h.paused ? 'paused' : s.showing ? 'score ' + Math.round(hUrg(h, s) + hImp(h, s) * 15) : 'not due'}</div></div><div>${bx}</div><button onclick="openHE(${h.id})">Edit</button></div>${HE === h.id ? heHTML(h) : ''}`; }).join('');
+  const tr = TASKS.slice().sort((a, b) => (sorted(b) ? b.urg + b.imp * 15 : -1) - (sorted(a) ? a.urg + a.imp * 15 : -1) || a.id - b.id).map(t =>
+    `<div class="row${t.checked ? ' dim' : ''}"><input type="checkbox" ${t.checked ? 'checked' : ''} onchange="taskToggle(${t.id},this.checked)"><div class="main"><div>${esc(t.name)}</div><div class="tm">${sorted(t) ? t.dur + ' min · ' + t.utype + ' · score ' + (t.urg + t.imp * 15) : 'not sorted yet'}</div></div></div>`).join('');
+  return `<div class="card"><h2>Habits</h2><button onclick="openHE('new')">+ New habit</button>${hr}<div class="mut" style="margin-top:6px">Day ${DAY} <button onclick="nextDay()">New day</button></div></div>`
+    + `<div class="card"><h2>Tasks</h2>${sortCard()}${tr}<div class="ed" style="border-top:1px solid var(--line);margin-top:6px"><label>New task<input id="tkName" style="width:200px" onkeydown="if(event.key==='Enter')addTaskUI()"></label><button class="pri" onclick="addTaskUI()">Add</button></div></div>`;
 }
 /* ---------- edit tab ---------- */
 let isNew = null;
@@ -784,9 +939,9 @@ function tapItem(id) { open = open === id ? null : id; isNew = null; render(); }
 function saveEdit(id) {
   const p = { name: $('edName').value.trim() || 'Item', dur: Math.max(0, parseFloat($('edDur').value) || 0) };
   if ($('edType')) { const v = $('edType').value; Object.assign(p, v.startsWith('buf:') ? { type: 'buf', kind: v.slice(4) } : { type: v }); }
-  open = null; isNew = null; apply(() => E.updateItem(state, id, p));
+  open = null; isNew = null; apply(() => E.updateItem(state, id, p, now));
 }
-function cancelEdit(id) { const n = isNew === id; open = null; isNew = null; if (n) apply(() => E.deleteItem(state, id)); else render(); }
+function cancelEdit(id) { const n = isNew === id; open = null; isNew = null; if (n) apply(() => E.deleteItem(state, id, now)); else render(); }
 function addNew() { apply(() => E.addItem(state, { type: 'est', name: 'New item', dur: 5 }, undefined, now)); if (state) { open = state.items[state.items.length - 1].id; isNew = open; } render(); }
 function editView(lay) {
   const rows = state.items.map(it => { const b = lay.blocks.find(x => x.id === it.id), pend = it.status === 'pending';
@@ -808,7 +963,7 @@ function editView(lay) {
 function render() {
   $('setup').style.display = state ? 'none' : 'block'; $('nav').style.display = state ? 'grid' : 'none';
   if (!state) { $('app').innerHTML = ''; return; }
-  const lay = E.layout(state, now); PLANS = bufferPlans(lay);
+  ensureBP(); const lay = E.layout(state, now); PLANS = bufferPlans(lay);
   $('tRun').className = tab === 'run' ? 'on' : ''; $('tEdit').className = tab === 'edit' ? 'on' : ''; $('tTasks').className = tab === 'tasks' ? 'on' : '';
   $('app').innerHTML = (flashMsg ? `<div class="card late">${esc(flashMsg)}</div>` : '') + (tab === 'run' ? runView(lay) : tab === 'edit' ? editView(lay) : tasksView()); flashMsg = '';
 }
