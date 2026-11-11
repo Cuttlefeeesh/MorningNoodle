@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner v1.2</title>
+<title>Phone runner v1.2.1</title>
 <style>
 :root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -30,9 +30,9 @@ input[type=number]{width:72px}
 .nowbig{font-size:1.4rem;font-weight:600}.endbig{font-size:2.1rem;font-weight:800;line-height:1.1;text-align:right}
 .late{color:var(--warn)}.early{color:var(--brk)}
 .bar-wrap{position:relative;padding:4px 6px;margin:4px 0 8px}
-.bar{display:flex;height:48px;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
-.s{position:relative;height:100%;min-width:3px;overflow:hidden;box-shadow:inset -1px 0 0 var(--bg)}
-.s.past{opacity:.4}.s.now{box-shadow:inset 0 0 0 3px var(--txt),inset -1px 0 0 var(--bg)}
+.bar{position:relative;height:48px;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.s{position:absolute;top:0;bottom:0;min-width:3px;overflow:hidden;box-shadow:inset -1px 0 0 var(--bg)}
+.s.past::after{content:"";position:absolute;top:0;right:0;bottom:0;left:0;background:var(--bg);opacity:.6;pointer-events:none}.s.now{box-shadow:inset 0 0 0 3px var(--txt),inset -1px 0 0 var(--bg)}
 .s.partial{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.35) 0 3px,transparent 3px 6px)}
 .s .fill{position:absolute;left:0;top:0;bottom:0;background:#000;opacity:.3}
 .s.grey{background:repeating-linear-gradient(135deg,#3a3d40 0 4px,#2c2f32 4px 8px)!important}.s.rem{opacity:.55}
@@ -335,298 +335,6 @@ const ENGINE = (function () {
            activeItem, describe, constants: { FLOOR_FRACTION, GROW_WEIGHT_MIN, BUFFER_MIN_SHOW } };
 })();
 </script>
-<script id="tests">
-function runAllTests() {
-  const E = ENGINE;
-  const results = [];
-  const f2 = n => (Math.round(n * 100) / 100).toString();
-
-  function scenario(title, desc, fn) {
-    const checks = [], notes = [];
-    const c = {
-      near(label, got, want, tol) { checks.push({ label, got: f2(got), want: f2(want), pass: Math.abs(got - want) <= (tol === undefined ? 0.01 : tol) }); },
-      eq(label, got, want) { checks.push({ label, got: String(got), want: String(want), pass: got === want }); },
-      ok(label, cond) { checks.push({ label, got: String(!!cond), want: 'true', pass: !!cond }); },
-      note(t) { notes.push(t); }
-    };
-    try { fn(c); } catch (e) { checks.push({ label: 'scenario threw an error', got: String(e && e.message || e), want: 'no error', pass: false }); }
-    results.push({ title, desc, checks, notes, pass: checks.every(x => x.pass) });
-  }
-
-  // 60 minutes planned: Cleanup 10 (min), Pack lunch 20 (est), task buffer 10, Make bed 15 (est), break buffer 5.
-  const routineR = () => [
-    { type: 'min', name: 'Cleanup', dur: 10 },
-    { type: 'est', name: 'Pack lunch', dur: 20 },
-    { type: 'buf', kind: 'task', name: 'Task buffer', dur: 10 },
-    { type: 'est', name: 'Make bed', dur: 15 },
-    { type: 'buf', kind: 'break', name: 'Break buffer', dur: 5 }
-  ];
-  const L = (lay, name) => lay.blocks.find(b => b.name === name);
-  const names = s => s.items.map(i => i.name + (i.status === 'pending' ? '' : ':' + i.status)).join(' | ');
-  const req = () => E.createRun({ items: routineR(), mode: 'required', start: 0, requiredEnd: 60 });
-  const open = () => E.createRun({ items: routineR(), mode: 'open', start: 0 });
-  const done = (s, t) => E.complete(s, t).state;
-
-  scenario('1. On time, required end',
-    'Everything finishes exactly as planned: items and buffers stay at their defaults and the end is 60.', c => {
-    let s = req(), lay = E.layout(s, 0);
-    c.eq('first item is active', E.activeItem(s).name, 'Cleanup');
-    c.near('projected end at start', lay.projectedEnd, 60);
-    s = done(s, 10); lay = E.layout(s, 10);
-    c.eq('Pack lunch is active', E.activeItem(s).name, 'Pack lunch');
-    c.near('Pack lunch length', L(lay, 'Pack lunch').len, 20);
-    c.near('task buffer', L(lay, 'Task buffer').len, 10);
-    c.near('break buffer', L(lay, 'Break buffer').len, 5);
-    c.near('projected end', lay.projectedEnd, 60);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('2. Early finish, required end, with buffers',
-    'Cleanup done 4 min early. The 4 spare minutes go to the buffers, weighted 10 : 5.', c => {
-    let s = done(req(), 6); const lay = E.layout(s, 6);
-    c.near('Pack lunch stays at 20', L(lay, 'Pack lunch').len, 20);
-    c.near('Make bed stays at 15', L(lay, 'Make bed').len, 15);
-    c.near('task buffer grows', L(lay, 'Task buffer').len, 10 + 4 * 10 / 15);
-    c.near('break buffer grows', L(lay, 'Break buffer').len, 5 + 4 * 5 / 15);
-    c.near('projected end', lay.projectedEnd, 60);
-    c.near('no saved tail', lay.freeTail, 0);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('3. Small overrun absorbed by buffers only',
-    'Cleanup done 4 min late. Buffers shrink in proportion to their defaults; items stay full length.', c => {
-    let s = done(req(), 14); const lay = E.layout(s, 14);
-    c.near('Pack lunch stays at 20', L(lay, 'Pack lunch').len, 20);
-    c.near('task buffer', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
-    c.near('break buffer', L(lay, 'Break buffer').len, 5 * (1 - 4 / 15));
-    c.near('projected end', lay.projectedEnd, 60);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('4. Bigger overrun: buffers vanish, items compress',
-    'Cleanup done 20 min late. Both buffers disappear and the two estimate items shrink, but stay above 80%.', c => {
-    let s = done(req(), 30); const lay = E.layout(s, 30);
-    c.ok('task buffer hidden', L(lay, 'Task buffer').hidden);
-    c.ok('break buffer hidden', L(lay, 'Break buffer').hidden);
-    c.near('Pack lunch', L(lay, 'Pack lunch').len, 20 - 4 * (5 / 7));
-    c.near('Make bed', L(lay, 'Make bed').len, 15 - 3 * (5 / 7));
-    c.ok('Pack lunch at least 80%', L(lay, 'Pack lunch').len >= 16 - 1e-9);
-    c.near('projected end', lay.projectedEnd, 60);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('5. Overrun too big even for the 80% floors',
-    'Cleanup done 30 min late. Items sit at their floors and the projected end runs past the required end.', c => {
-    let s = done(req(), 40); const lay = E.layout(s, 40);
-    c.near('Pack lunch at floor', L(lay, 'Pack lunch').len, 16);
-    c.near('Make bed at floor', L(lay, 'Make bed').len, 12);
-    c.near('over by', lay.overBy, 8);
-    c.near('projected end', lay.projectedEnd, 68);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('6. Late, then caught up (full reversal), required end',
-    'Cleanup 4 late, then Pack lunch 4 early. Buffers return exactly to their defaults.', c => {
-    let s = done(req(), 14);
-    let lay = E.layout(s, 14);
-    c.near('after the delay, task buffer is shrunk', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
-    s = done(s, 30); lay = E.layout(s, 30);
-    c.near('task buffer back to default', L(lay, 'Task buffer').len, 10);
-    c.near('break buffer back to default', L(lay, 'Break buffer').len, 5);
-    c.near('Make bed full length', L(lay, 'Make bed').len, 15);
-    c.near('projected end', lay.projectedEnd, 60);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('7. Open-ended: late, then catching up',
-    'Open end, suggested 60. Buffers shrink first; past that the end moves later; catching up brings the end back, then buffers regrow.', c => {
-    let s = open(), lay = E.layout(s, 0);
-    c.near('suggested end', lay.referenceEnd, 60);
-    let a = done(s, 14); lay = E.layout(a, 14);
-    c.near('4 late: end unchanged', lay.projectedEnd, 60);
-    c.near('4 late: task buffer shrinks', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
-    a = done(s, 30); lay = E.layout(a, 30);
-    c.ok('20 late: buffers gone', L(lay, 'Task buffer').hidden && L(lay, 'Break buffer').hidden);
-    c.near('20 late: items not compressed', L(lay, 'Pack lunch').len, 20);
-    c.near('20 late: end moves later', lay.projectedEnd, 65);
-    c.near('20 late: over by', lay.overBy, 5);
-    // Pack lunch then finishes at 40 (10 min early): the end returns to 60 and buffers partly return.
-    let b = done(a, 40); lay = E.layout(b, 40);
-    c.near('then 10 early: end back to original', lay.projectedEnd, 60);
-    c.near('then 10 early: task buffer partly back', L(lay, 'Task buffer').len, 10 * (1 - 10 / 15));
-    // Ahead of schedule from the start: buffers grow, end stays 60.
-    const e = done(s, 5); lay = E.layout(e, 5);
-    c.near('5 early: task buffer grows', L(lay, 'Task buffer').len, 10 + 5 * 10 / 15);
-    c.near('5 early: end stays', lay.projectedEnd, 60);
-    c.note(E.describe(lay, e));
-  });
-
-  scenario('8. No buffers, ahead of schedule',
-    'Two items, 30 planned. Cleanup done 4 early: the end moves earlier and the saved time is shown at the end.', c => {
-    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
-    ['required', 'open'].forEach(mode => {
-      const s = E.createRun({ items, mode, start: 0, requiredEnd: 30 });
-      const t = done(s, 6), lay = E.layout(t, 6);
-      c.near(mode + ': projected end moves earlier', lay.projectedEnd, 26);
-      c.near(mode + ': saved tail', lay.freeTail, 4);
-      c.near(mode + ': reference end', lay.referenceEnd, 30);
-      if (mode === 'open') c.note(E.describe(lay, t));
-    });
-  });
-
-  scenario('9. Push forward',
-    'Skip the current item for this run only. Time spent stays on it and counts when it returns.', c => {
-    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }, { type: 'est', name: 'Make bed', dur: 15 }];
-    let s = E.createRun({ items, mode: 'open', start: 0 });
-    let r = E.pushForward(s, 4); s = r.state;
-    c.eq('no error', r.error, null);
-    c.eq('Pack lunch now active', E.activeItem(s).name, 'Pack lunch');
-    c.eq('order', names(s), 'Pack lunch:active | Cleanup | Make bed');
-    c.eq('partial block recorded', s.history.length === 1 && s.history[0].partial && s.history[0].from === 0 && s.history[0].to === 4, true);
-    let lay = E.layout(s, 4);
-    c.near('Cleanup returns at full length', L(lay, 'Cleanup').len, 10);
-    c.near('Cleanup starts after Pack lunch', L(lay, 'Cleanup').start, 24);
-    c.near('the 4 spent minutes are not credited: end 4 later', lay.projectedEnd, 49);
-    c.note(E.describe(lay, s));
-    // single item: nothing to push past
-    const one = E.createRun({ items: [{ type: 'min', name: 'Only', dur: 5 }], mode: 'open', start: 0 });
-    c.eq('nothing to push past', E.pushForward(one, 1).error, 'nothing to push past');
-  });
-
-  scenario('9b. Push forward passes over a hidden buffer',
-    'A buffer that has no room is not shown, so push forward swaps with the next visible item instead.', c => {
-    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'buf', kind: 'task', name: 'Task buffer', dur: 5 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
-    let s = E.createRun({ items, mode: 'required', start: 0, requiredEnd: 30 });
-    c.ok('buffer hidden at start', E.layout(s, 0).blocks.find(b => b.name === 'Task buffer').hidden);
-    const r = E.pushForward(s, 2); s = r.state;
-    c.eq('no error', r.error, null);
-    c.eq('Pack lunch active', E.activeItem(s).name, 'Pack lunch');
-    c.eq('order and statuses', names(s), 'Task buffer:skipped | Pack lunch:active | Cleanup');
-    c.note(E.describe(E.layout(s, 2), s));
-  });
-
-  scenario('10. Mid-run edits, required end',
-    'After Cleanup is done at 6 (Pack lunch active): add, delete, move, update. Required end stays 60.', c => {
-    let s = done(req(), 6);
-    let r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 });
-    let lay = E.layout(r.state, 6);
-    c.near('add 5 min item: task buffer shrinks', L(lay, 'Task buffer').len, 10 * 14 / 15);
-    c.near('add 5 min item: break buffer shrinks', L(lay, 'Break buffer').len, 5 * 14 / 15);
-    c.near('add 5 min item: end stays 60', lay.projectedEnd, 60);
-
-    r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 }, 0);
-    c.eq('add at index 0 lands after the active item', names(r.state), 'Cleanup:done | Pack lunch:active | Trash | Task buffer | Make bed | Break buffer');
-
-    const bed = s.items.find(i => i.name === 'Make bed');
-    r = E.deleteItem(s, bed.id); lay = E.layout(r.state, 6);
-    c.near('delete Make bed: task buffer grows', L(lay, 'Task buffer').len, 10 + 19 * 10 / 15);
-    c.near('delete Make bed: break buffer grows', L(lay, 'Break buffer').len, 5 + 19 * 5 / 15);
-
-    c.ok('cannot delete a finished item', E.deleteItem(s, s.items[0].id).error !== null);
-    c.ok('cannot delete the active item', E.deleteItem(s, E.activeItem(s).id).error !== null);
-
-    r = E.moveItem(s, bed.id, -1);
-    c.eq('move Make bed up past the task buffer', names(r.state), 'Cleanup:done | Pack lunch:active | Make bed | Task buffer | Break buffer');
-    const pu = E.moveItem(r.state, bed.id, -1, 6);
-    c.eq('Up on the first waiting item acts as push forward', pu.error === null && E.activeItem(pu.state).name === 'Make bed', true);
-    c.ok('cannot move the active item', E.moveItem(s, E.activeItem(s).id, 1).error !== null);
-
-    r = E.updateItem(s, E.activeItem(s).id, { dur: 25 }, 6); lay = E.layout(r.state, 6);
-    c.near('lengthen the active item by 5: Pack lunch remaining', L(lay, 'Pack lunch').len, 25);
-    c.near('lengthen the active item by 5: task buffer shrinks', L(lay, 'Task buffer').len, 10 * 14 / 15);
-    c.near('lengthen the active item by 5: end stays 60', lay.projectedEnd, 60);
-  });
-
-  scenario('10b. Mid-run edits, open end',
-    'Adding an item moves the suggested end later; deleting moves it earlier.', c => {
-    let s = done(open(), 6);
-    let r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 });
-    let lay = E.layout(r.state, 6);
-    c.near('suggested end moves to 65', lay.referenceEnd, 65);
-    c.near('projected end', lay.projectedEnd, 65);
-    c.near('task buffer: 4 early minutes still in the buffers', L(lay, 'Task buffer').len, 10 + 4 * 10 / 15);
-    const bed = s.items.find(i => i.name === 'Make bed');
-    r = E.deleteItem(s, bed.id); lay = E.layout(r.state, 6);
-    c.near('delete 15 min item: suggested end moves to 45', lay.referenceEnd, 45);
-    c.near('projected end', lay.projectedEnd, 45);
-  });
-
-  scenario('11. Tight run to the finish',
-    'Cleanup done at 30 (20 late), then each item at its compressed length. Skipped buffers stay skipped; run ends at 60.', c => {
-    let s = done(req(), 30);
-    let lay = E.layout(s, 30);
-    const t1 = 30 + L(lay, 'Pack lunch').len;
-    s = done(s, t1); lay = E.layout(s, t1);
-    c.eq('Make bed active (buffer passed over)', E.activeItem(s).name, 'Make bed');
-    c.near('Make bed length', L(lay, 'Make bed').len, 90 / 7);
-    const t2 = t1 + L(lay, 'Make bed').len;
-    s = done(s, t2);
-    c.eq('run finished', s.finished, true);
-    c.near('finished at 60', t2, 60, 0.05);
-    c.eq('statuses', names(s), 'Cleanup:done | Pack lunch:done | Task buffer:skipped | Make bed:done | Break buffer:skipped');
-  });
-
-  scenario('12. Sweep: Cleanup done at every minute 0 to 60',
-    'Invariants for the required end: lengths never negative, end holds unless over, buffer total only falls as time is lost.', c => {
-    let bad = [], prevBuf = Infinity, monotone = true, tailWithBuf = false;
-    for (let t = 0; t <= 60; t++) {
-      const s = done(req(), t); const lay = E.layout(s, t);
-      if (s.finished) continue;
-      if (lay.blocks.some(b => b.len < -1e-9)) bad.push('negative length at ' + t);
-      if (lay.overBy < 1e-6 && lay.freeTail < 1e-6 && Math.abs(lay.projectedEnd - 60) > 1e-6) bad.push('end drifted at ' + t);
-      if (lay.overBy > 1e-6 && lay.projectedEnd < 60) bad.push('over flag wrong at ' + t);
-      const bufTotal = lay.blocks.filter(b => b.type === 'buf').reduce((a, b) => a + b.len, 0);
-      if (bufTotal > prevBuf + 1e-6) monotone = false;
-      prevBuf = bufTotal;
-      if (lay.freeTail > 1e-6 && lay.blocks.some(b => b.type === 'buf' && !b.hidden)) tailWithBuf = true;
-    }
-    c.eq('no invariant violations', bad.join('; ') || 'none', 'none');
-    c.ok('buffer total never grows as completion time gets later', monotone);
-    c.ok('saved tail only appears when no buffer is showing', !tailWithBuf);
-  });
-
-  scenario('13. Pushed items, minimum chime, saved time',
-    'Pushed items return at full length; minimum chime uses total time; leftover time keeps running as saved time.', c => {
-    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
-    let s = E.createRun({ items, mode: 'open', start: 0 });
-    s = E.pushForward(s, 12).state;
-    c.near('returns at full length although 12 > 10 min were spent', L(E.layout(s, 12), 'Cleanup').len, 10);
-    s = done(s, 32);
-    c.eq('Cleanup active again', E.activeItem(s).name, 'Cleanup');
-    c.eq('no minimum chime: minimum already reached', L(E.layout(s, 32), 'Cleanup').minChimeAt, null);
-    let t = E.pushForward(E.createRun({ items, mode: 'open', start: 0 }), 4).state; t = done(t, 24);
-    const lt = E.layout(t, 24);
-    c.near('chime when TOTAL reaches the minimum', L(lt, 'Cleanup').minChimeAt, 30);
-    c.near('block still ends after a full 10 min', L(lt, 'Cleanup').end, 34);
-    const one = () => E.createRun({ items: [{ type: 'est', name: 'A', dur: 10 }], mode: 'required', start: 0, requiredEnd: 20 });
-    const u = done(one(), 6);
-    c.eq('keeps running in saved time', u.finished === false && u.free !== null, true);
-    c.near('saved block runs to the end time', E.layout(u, 8).freeBlock.end, 20);
-    c.eq('adding an item starts it', E.activeItem(E.addItem(u, { type: 'est', name: 'B', dur: 5 }, undefined, 8).state).name, 'B');
-    c.eq('finish from saved time', E.finishRun(u, 10).state.finished, true);
-    c.eq('completing at the end time finishes the run', done(one(), 20).finished, true);
-  });
-
-  scenario('14. Locked block ends: the clock alone never reshuffles',
-    'Active buffer keeps its end while the clock runs; only events (or overrunning the whole block) change plans.', c => {
-    const mk = end => E.createRun({ items: [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'buf', kind: 'task', name: 'Buf', dur: 10 }, { type: 'est', name: 'Pack', dur: 20 }], mode: 'required', start: 0, requiredEnd: end });
-    let s = done(mk(60), 6);
-    [6, 12, 25, 39].forEach(t => { const lay = E.layout(s, t); c.near('growing buffer end at ' + t, L(lay, 'Buf').end, 40); c.near('Pack start at ' + t, L(lay, 'Pack').start, 40); });
-    s = done(mk(35), 10);
-    [10, 12, 15].forEach(t => c.near('shrunk buffer end at ' + t, L(E.layout(s, t), 'Buf').end, 15));
-    c.near('Pack unchanged by the clock', L(E.layout(s, 14), 'Pack').len, 20);
-    const lay = E.layout(s, 20);
-    c.near('overrun: buffer length 0', L(lay, 'Buf').len, 0);
-    c.near('overrun: Pack at floor', L(lay, 'Pack').len, 16);
-    c.near('overrun: over by', lay.overBy, 1);
-    const s2 = done(mk(60), 10), id = s2.items[2].id;
-    c.near('delete Pack at 20: buffer re-locked to 60', L(E.layout(E.deleteItem(s2, id, 20).state, 20), 'Buf').end, 60);
-    c.near('Pack to 30 min at 20: buffer re-locked to 30', L(E.layout(E.updateItem(s2, id, { dur: 30 }, 20).state, 20), 'Buf').end, 30);
-  });
-
-  return results;
-}
-</script>
 <script id="ui">
 const E = ENGINE, $ = id => document.getElementById(id);
 const CLOCK_24H = false;
@@ -743,10 +451,9 @@ function runView(lay) {
   else if (state.free) { const left = Math.max(0, ref - now);
     cur = `<div class="card cur"><span class="chip" style="background:var(--brk)">Saved time</span><div class="name">Nothing scheduled</div><div class="big">${left > 0 ? mmss(left) : 'End time reached'}</div><div class="mut">${left > 0 ? 'left until the end time. Add an item on the Edit tab, or finish.' : 'The routine can be finished now.'}</div><button class="pri" style="min-height:56px;width:100%" onclick="apply(()=>E.finishRun(state,now))">Finish routine</button></div>`; }
   else if (act.type === 'buf' && act.kind === 'task') { cur = taskBufferCard(act, b); }
-  else { const isOver = b.len <= 0, inMin = b.minChimeAt !== null;
-    cur = `<div class="card cur">${chip(act)}<div class="name">${esc(act.name)}</div><div class="big">${isOver ? mmss(now - act.activeSince) : mmss(b.len)}</div><div class="mut">${isOver ? 'spent, was due at ' + clock(act.lockedEnd) : 'left in this block, ends ' + clock(b.end)}</div>`
+  else { const isOver = b.len <= 0;
+    cur = `<div class="card cur">${chip(act)}<div class="name">${esc(act.name)}</div><div class="big">${isOver ? mmss(now - act.activeSince) : mmss(b.len)}</div><div class="mut">${isOver ? 'spent, was due at ' + clock(act.lockedEnd) : mmss(b.len) + ' left of ' + fm(b.end - act.activeSince) + ' min, ends ' + clock(b.end)}</div>`
       + (act.spent > 0 ? `<div class="mut">${fm(act.spent)} min already spent on it earlier (not credited to this block)</div>` : '')
-      + (act.type === 'min' ? `<div class="mut">${inMin ? 'Single chime in ' + mmss(b.minChimeAt - now) + ' when total time reaches ' + fm(act.dur) + ' min' : 'Minimum of ' + fm(act.dur) + ' min already reached'}</div>` : '')
       + `<button class="pri" style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.complete(state,now))">Done</button><button style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.pushForward(state,now))">Push forward</button></div>`; }
   segs = [];
   state.history.forEach(h => segs.push(h.free ? { from: h.from, to: h.to, free: true, past: true } : { from: h.from, to: h.to, it: itemById(h.id), past: true, partial: h.partial }));
@@ -761,9 +468,9 @@ function runView(lay) {
   let due = null;
   if (!state.finished && !state.free && act) { const tb = act.type === 'buf' && act.kind === 'task' && BP && BP.bufId === act.id; const de = tb && BP.cur ? BP.cur.start + BP.cur.duration : act.lockedEnd; if (de != null && now > de + 0.02) due = de; }
   const endAll = Math.max(ref, now, ...segs.map(s => s.to)), span = Math.max(1, endAll), pc = m => m / span * 100;
-  const bar = segs.map((s, i) => { const w = Math.max(0.3, (s.to - s.from) / span * 100);
+  const bar = segs.map((s, i) => {
     const fill = s.now ? `<div class="fill" style="width:${Math.min(100, s.to > s.from ? s.elapsed / (s.to - s.from) * 100 : 100)}%"></div>` : '';
-    return `<div class="s${s.past ? ' past' : ''}${s.now && !s.free ? ' now' : ''}${s.partial ? ' partial' : ''}${s.grey ? ' grey' : ''}${s.rem ? ' rem' : ''}" style="width:${w}%;background:${s.free ? 'var(--brk)' : colorFor(s.it)}" onclick="pick(${i})">${fill}</div>`; }).join('');
+    return `<div class="s${s.past ? ' past' : ''}${s.now && !s.free ? ' now' : ''}${s.partial ? ' partial' : ''}${s.grey ? ' grey' : ''}${s.rem ? ' rem' : ''}" style="left:${s.from / span * 100}%;width:${(s.to - s.from) / span * 100}%;background:${s.free ? 'var(--brk)' : colorFor(s.it)}" onclick="pick(${i})">${fill}</div>`; }).join('');
   const pe = state.finished ? ref : lay.projectedEnd, moved = Math.abs(pe - ref) > 0.5, late = pe - ref > 0.5, early = ref - pe > 0.5 && !state.free;
   const endHtml = (moved && !state.finished && !state.free) ? `<div class="endbig ${late ? 'late' : 'early'}">${clock(pe)}</div><div class="mut">was ${clock(ref)}</div>` : `<div class="endbig">${clock(ref)}</div><div class="mut">${state.mode === 'required' ? 'required' : 'estimated'}</div>`;
   return (MUTED || (actx && actx.state === 'running') ? '' : '<div class="mut">Tap anywhere to enable sound.</div>') + cur + `<div class="card"><div class="ends"><div><div class="mut">${state.finished ? 'Finished' : 'Now'}</div><div class="nowbig">${clock(now)}</div></div><div style="text-align:right">${endHtml}</div></div>`
