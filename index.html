@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner v1.2.2</title>
+<title>Phone runner v1.2.3</title>
 <style>
 :root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -62,6 +62,8 @@ button.tg.on{background:var(--accent);color:var(--on);font-weight:600}
 .tsel select{position:absolute;left:0;top:0;width:100%;height:100%;min-height:0;opacity:0;padding:0}
 .ed{padding:8px 0 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
 .ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--mut)}
+.banner{background:#33261a;border:1px solid var(--warn);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.9rem}.banner:empty{display:none}.banner button{margin-top:6px}
+.info h3{font-size:.95rem;margin:14px 0 4px;color:var(--txt)}.info p,.info li{font-size:.9rem;margin:4px 0}.info ul{padding-left:20px;margin:4px 0}
 #log{font:.8rem/1.5 monospace;white-space:pre-wrap;color:var(--mut)}
 nav{position:fixed;left:0;right:0;bottom:0;display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
 nav button{margin:0;border-radius:0;min-height:56px;background:transparent}
@@ -70,6 +72,7 @@ nav button.on{color:var(--accent);font-weight:700;box-shadow:inset 0 3px 0 var(-
 </head>
 <body>
 <div class="wrap">
+<div id="banner" class="banner"></div>
 <div id="setup" class="card">
   <h2>Start a run</h2>
   <label>Routine <select id="preset"></select></label><br>
@@ -341,6 +344,13 @@ const CLOCK_24H = false;
 const fm = n => String(Math.round(n));
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const clone = o => JSON.parse(JSON.stringify(o));
+/* ---------- versions and multi-tab safety ----------
+   APP_VERSION is shown to the person. SCHEMA is the saved-data format: only bump it for a change an older
+   copy cannot safely read or write (renamed or removed fields). Adding optional fields keeps the same SCHEMA.
+   Saving is switched off (LOCK) in a tab when the saved data was written by another tab or by a newer
+   SCHEMA, so a stale tab never overwrites newer data. */
+const APP_VERSION = '1.2.3', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
+let LOCK = null, lastSaved = '', ALIVE_NOTE = false, CONVERTED_NOTE = '';
 const pad = n => String(n).padStart(2, '0');
 const fmTotal = m => { const r = Math.round(m); return r < 60 ? r + ' min' : Math.floor(r / 60) + ' h ' + (r % 60) + ' min'; };
 const itemsTotal = items => items.reduce((a, i) => a + (+i.dur || 0), 0);
@@ -727,7 +737,7 @@ function editView(lay) {
 
 function muteCard() {
   const ic = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3z" fill="currentColor"/>${MUTED ? '<path d="M16 9l5 6M21 9l-5 6"/>' : '<path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12"/>'}</svg>`;
-  return `<div class="card"><button onclick="toggleMute()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px">${ic}${MUTED ? 'Sound muted (tap to unmute)' : 'Sound on (tap to mute)'}</button></div>`;
+  return `<div class="card"><button onclick="toggleMute()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px">${ic}${MUTED ? 'Sound muted (tap to unmute)' : 'Sound on (tap to mute)'}</button><button onclick="go('info')" style="width:100%;min-height:40px;margin-top:6px;font-size:.9rem">How to use and about</button></div>`;
 }
 function routineEditor() {
   const r = rt(), tv = it => it.type === 'buf' ? 'buf:' + (it.kind || 'task') : it.type, T = [['est', 'Estimate'], ['min', 'Minimum'], ['buf:task', 'Task buffer'], ['buf:break', 'Break buffer']];
@@ -754,12 +764,13 @@ function rRemove() { const r = rt(); if (r.id === 'sprint') return; if (RDEL !==
 
 /* ---------- backup ---------- */
 const EXP = 'PHONERUNNER_EXPORT_V1:';
-function exportAll() { const t = EXP + JSON.stringify({ routines: ROUTINES, tasks: TASKS, habits: HABITS, day: DAY }), fb = $('expFb'), m = $('backupMsg');
+function exportAll() { const t = EXP + JSON.stringify({ sv: SCHEMA, ver: APP_VERSION, routines: ROUTINES, tasks: TASKS, habits: HABITS, day: DAY }), fb = $('expFb'), m = $('backupMsg');
   const show = () => { fb.value = t; fb.style.display = 'block'; fb.select(); m.textContent = 'Clipboard unavailable: select and copy the text below.'; };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => { fb.style.display = 'none'; m.textContent = 'Copied export to clipboard.'; }, show); else show(); }
 function importAll() { const v = $('impBox').value.trim(), m = $('backupMsg'); let d;
   if (!v.startsWith(EXP)) { m.textContent = 'That is not an export.'; return; }
   try { d = JSON.parse(v.slice(EXP.length)); } catch (e) { m.textContent = 'Could not read that export.'; return; }
+  if (d && (d.sv || 1) > SCHEMA) { m.textContent = 'That export is from a newer version (' + (d.ver || '?') + ') and this one (v' + APP_VERSION + ') cannot read it safely.'; return; }
   if (!d || !Array.isArray(d.routines) || !Array.isArray(d.tasks) || !Array.isArray(d.habits)) { m.textContent = 'The export is incomplete.'; return; }
   if (!impPending) { impPending = true; m.textContent = 'This replaces all routines, tasks and habits. Tap Import again to confirm.'; return; }
   impPending = false; ROUTINES = d.routines.some(r => r.id === 'sprint') ? d.routines : [defaultRoutines()[0], ...d.routines];
@@ -767,10 +778,65 @@ function importAll() { const v = $('impBox').value.trim(), m = $('backupMsg'); l
   $('impBox').value = ''; m.textContent = 'Imported.'; render(); }
 
 /* ---------- saved data (survives reload and browser close) ---------- */
-function save() { try { localStorage.setItem('pr_v1', JSON.stringify({ state, T0, base, BP, skip: [...SKIP], mom: RUNMOM, tasks: TASKS, habits: HABITS, day: DAY, ts: taskSeq, hs: habitSeq, routines: ROUTINES, rid: RID, muted: MUTED })); } catch (e) {} }
-function restore() { const d = JSON.parse(localStorage.getItem('pr_v1') || 'null'); if (!d) return;
+function save() { if (LOCK) return; try {
+    const str = JSON.stringify({ sv: SCHEMA, ver: APP_VERSION, state, T0, base, BP, skip: [...SKIP], mom: RUNMOM, tasks: TASKS, habits: HABITS, day: DAY, ts: taskSeq, hs: habitSeq, routines: ROUTINES, rid: RID, muted: MUTED });
+    if (str === lastSaved) return; localStorage.setItem('pr_v1', str); lastSaved = str; } catch (e) {} }
+function restore() { const raw = localStorage.getItem('pr_v1'); const d = JSON.parse(raw || 'null'); if (!d) return;
+  const sv = d.sv || 1;
+  if (sv > SCHEMA) { LOCK = { kind: 'newer', ver: d.ver || '?' }; return; } // written by a newer version: read nothing, change nothing
+  if (sv < SCHEMA) CONVERTED_NOTE = 'Your saved data was converted from an older format. Copy an export from the start screen if you want a backup.';
   state = d.state || null; T0 = d.T0 || 0; base = d.base || 0; BP = d.BP || null; SKIP = new Set(d.skip || []); RUNMOM = d.mom || 0; TASKS = d.tasks || []; HABITS = d.habits || [];
   DAY = d.day || 1; taskSeq = d.ts || 0; habitSeq = d.hs || 0; if (d.routines && d.routines.length) ROUTINES = d.routines; RID = d.rid || 'sprint'; MUTED = !!d.muted; }
+
+/* ---------- other tabs and versions ---------- */
+function bannerHTML() {
+  let h = '';
+  if (LOCK && LOCK.kind === 'newer') h += `<div><b>Saved data is from a newer version (${esc(LOCK.ver)}).</b> This is v${APP_VERSION}; it can't read that data safely, so it is not loading or saving anything. Reload to get the newer page.<br><button class="pri" onclick="location.reload()">Reload</button></div>`;
+  else if (LOCK) h += `<div><b>Saved data was changed in another tab or version${LOCK.ver ? ' (' + esc(LOCK.ver) + ')' : ''}.</b> This tab has stopped saving so it doesn't overwrite that. If a routine is running here it keeps running, but its progress is not saved.<br><button class="pri" onclick="location.reload()">Reload to use the saved data</button><button onclick="keepThisTab()">Keep this tab's data</button></div>`;
+  if (ALIVE_NOTE) h += `<div style="margin-top:8px"><b>A routine seems to be running in another tab.</b> Using both at once can overwrite each other's progress. Close one of them.<br><button onclick="ALIVE_NOTE=false;render()">Dismiss</button></div>`;
+  if (CONVERTED_NOTE) h += `<div style="margin-top:8px">${esc(CONVERTED_NOTE)}<br><button onclick="CONVERTED_NOTE='';render()">Dismiss</button></div>`;
+  return h;
+}
+function keepThisTab() { LOCK = null; lastSaved = ''; render(); }
+window.addEventListener('storage', e => {
+  if (e.key === 'pr_v1') {
+    if (e.newValue === lastSaved) return;
+    let nv = null; try { nv = JSON.parse(e.newValue || 'null'); } catch (x) {}
+    if (LOCK && LOCK.kind === 'newer') return;
+    LOCK = (nv && (nv.sv || 1) > SCHEMA) ? { kind: 'newer', ver: nv.ver || '?' } : { kind: 'other', ver: nv && nv.ver ? 'v' + nv.ver : '' };
+    render();
+  } else if (e.key === 'pr_v1_alive' && e.newValue && state && !state.finished) {
+    try { if (JSON.parse(e.newValue).id !== TAB_ID) { ALIVE_NOTE = true; render(); } } catch (x) {}
+  }
+});
+// A running tab writes a heartbeat so a second tab or a newer page can notice it. (Pages older than v1.2.3 do not.)
+function beat() { try {
+  if (state && !state.finished && !LOCK) localStorage.setItem('pr_v1_alive', JSON.stringify({ id: TAB_ID, ver: APP_VERSION, at: Date.now() }));
+  else { const a = JSON.parse(localStorage.getItem('pr_v1_alive') || 'null'); if (a && a.id === TAB_ID) localStorage.removeItem('pr_v1_alive'); } } catch (e) {} }
+try { const a = JSON.parse(localStorage.getItem('pr_v1_alive') || 'null'); if (a && a.id !== TAB_ID && Date.now() - a.at < 6000) ALIVE_NOTE = true; } catch (e) {}
+setInterval(beat, 2000);
+window.addEventListener('pagehide', () => { try { const a = JSON.parse(localStorage.getItem('pr_v1_alive') || 'null'); if (a && a.id === TAB_ID) localStorage.removeItem('pr_v1_alive'); } catch (e) {} });
+
+/* ---------- info page ---------- */
+function infoView() {
+  return `<div class="card info"><h2>How to use</h2>
+<h3>Run a routine</h3><ul>
+<li>On the Run tab choose a routine, then either a required end time (blocks shrink to fit) or open-ended (the end moves later if you run long). Tap Start run.</li>
+<li>Tap Done when an item is finished, or Push forward to skip it once for this run only. A chime sounds when an item's time is up, and once more 30 seconds later.</li>
+<li>Estimate and Minimum items are fixed-length (a Minimum chimes once when its time is reached). Task buffers fill spare time with tasks and habits; break buffers are for rests. Buffers shrink first when you run late and grow when you are ahead.</li></ul>
+<h3>Edit routines</h3><ul>
+<li>The Edit routine tab changes the saved routines. During a run it edits only the items that have not started yet.</li>
+<li>Use the arrows to reorder. Tap the coloured icon to change an item's type or delete it.</li></ul>
+<h3>Tasks and habits</h3><ul>
+<li>Add tasks by name; you will be asked for a length, urgency and importance. Habits come back on their own schedule (X times in Y days, at least Z days apart). New day advances the day counter.</li></ul>
+<h3>Your data</h3><ul>
+<li>Everything is stored only in this browser on this device. It is not sent anywhere or synced. Clearing site data, or using another browser or device, starts you from empty.</li>
+<li>Back up often: on the start screen (no run in progress) use Copy export, and Import to restore.</li></ul>
+<h3>Versions</h3><ul>
+<li>This is v${APP_VERSION}. The hosted page can change at any time, and there is no guarantee a future version will work with older saves or exports, though I will try.</li>
+<li>Avoid having the app open in two tabs at once. If a tab notices the saved data was changed elsewhere it stops saving and says so.</li></ul>
+<button onclick="go('edit')" style="width:100%">Back to Edit routine</button></div>`;
+}
 
 /* ---------- alerts: scheduled on the audio clock, so they sound with the page in the background ---------- */
 function chimeAtT(out, t, n) { const o = (f, tt, dur, vol) => { const c = actx.createOscillator(), g = actx.createGain(); c.type = 'sine'; c.frequency.value = f;
@@ -805,8 +871,9 @@ function render() {
   $('tRun').className = tab === 'run' ? 'on' : ''; $('tEdit').className = tab === 'edit' ? 'on' : ''; $('tTasks').className = tab === 'tasks' ? 'on' : '';
   if (setupOn) populateSetup();
   let html = '';
-  if (state) { ensureBP(); const lay = E.layout(state, now); PLANS = bufferPlans(lay); armAlerts(lay); html = tab === 'run' ? runView(lay) : tab === 'edit' ? editView(lay) : tasksView(); }
-  else html = tab === 'tasks' ? tasksView() : tab === 'edit' ? routineEditor() : '';
+  if (state) { ensureBP(); const lay = E.layout(state, now); PLANS = bufferPlans(lay); armAlerts(lay); html = tab === 'info' ? infoView() : tab === 'run' ? runView(lay) : tab === 'edit' ? editView(lay) : tasksView(); }
+  else html = tab === 'info' ? infoView() : tab === 'tasks' ? tasksView() : tab === 'edit' ? routineEditor() : '';
+  $('banner').innerHTML = bannerHTML();
   $('app').innerHTML = (flashMsg ? `<div class="card late">${esc(flashMsg)}</div>` : '') + html; flashMsg = '';
   if (DETAIL && $('detail')) $('detail').textContent = DETAIL;
   save(); syncWake();
