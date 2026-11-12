@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner v1.2.3</title>
+<title>Phone runner v1.3</title>
 <style>
 :root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -116,7 +116,7 @@ const ENGINE = (function () {
     const type = spec.type;
     return {
       id: 'i' + s.nextId, type, kind: type === 'buf' ? (spec.kind || 'task') : 'work',
-      name: spec.name, dur: spec.dur, status: 'pending', spent: 0, activeSince: null, lockedEnd: null
+      name: spec.name, dur: spec.dur, src: spec.uid || null, status: 'pending', spent: 0, activeSince: null, lockedEnd: null
     };
   }
 
@@ -238,6 +238,7 @@ const ENGINE = (function () {
     if (!act) return { state: s, error: 'no active item' };
     act.spent = spentOf(act, now);
     s.history.push({ id: act.id, name: act.name, from: act.activeSince, to: now, partial: false });
+    act.squeezed = !!act.squeezed || (act.lockedEnd != null && act.lockedEnd - act.activeSince < act.dur - 0.05);
     act.status = 'done'; act.activeSince = null;
     activateNext(s, now);
     return { state: s, error: null };
@@ -258,6 +259,7 @@ const ENGINE = (function () {
     const act = s.items[idx];
     act.spent = spentOf(act, now);
     s.history.push({ id: act.id, name: act.name, from: act.activeSince, to: now, partial: true });
+    act.squeezed = !!act.squeezed || (act.lockedEnd != null && act.lockedEnd - act.activeSince < act.dur - 0.05);
     act.status = 'pending'; act.activeSince = null;
     for (let k = idx + 1; k < j; k++) if (s.items[k].status === 'pending') s.items[k].status = 'skipped';
     s.items.splice(idx, 1);          // target is now at j - 1
@@ -349,7 +351,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
    copy cannot safely read or write (renamed or removed fields). Adding optional fields keeps the same SCHEMA.
    Saving is switched off (LOCK) in a tab when the saved data was written by another tab or by a newer
    SCHEMA, so a stale tab never overwrites newer data. */
-const APP_VERSION = '1.2.3', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
+const APP_VERSION = '1.3', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
 let LOCK = null, lastSaved = '', ALIVE_NOTE = false, CONVERTED_NOTE = '';
 const pad = n => String(n).padStart(2, '0');
 const fmTotal = m => { const r = Math.round(m); return r < 60 ? r + ' min' : Math.floor(r / 60) + ' h ' + (r % 60) + ' min'; };
@@ -361,6 +363,8 @@ function defaultRoutines() { return [
     { type: 'est', name: 'Brush teeth', dur: 5 }, { type: 'est', name: 'Make bed', dur: 5 }, { type: 'min', name: 'House cleanup', dur: 15 },
     { type: 'est', name: 'Pack lunch', dur: 15 }, { type: 'buf', kind: 'task', name: 'Habits and tasks', dur: 10 }, { type: 'min', name: 'Flashcards', dur: 15 },
     { type: 'buf', kind: 'break', name: 'Break', dur: 5 }, { type: 'est', name: 'Shoes and keys', dur: 5 }] }]; }
+const newUid = () => 'u' + Math.random().toString(36).slice(2, 9);
+function ensureUids() { ROUTINES.forEach(r => r.items.forEach(i => { if (!i.uid) i.uid = newUid(); })); }
 function syncNow() { if (!state) return; if (state.finished && state.history.length) now = state.history[state.history.length - 1].to; else now = (Date.now() - T0) / 60000; }
 let BP = null, SKIP = new Set(), RUNMOM = 0, HE = null, HD = null, HDEL = null;
 let state = null, now = 0, base = 0, undo = [], tab = 'run', open = null, segs = [], log = [], resetPending = false, mode = 'required';
@@ -414,6 +418,7 @@ $('startBtn').onclick = () => {
   if (mode === 'open' && total(r) <= 0) return err('Open-ended needs items with time.');
   err(''); base = nm; T0 = Date.now(); now = 0; undo = []; log = []; open = null; tab = 'run'; BP = null; SKIP = new Set(); RUNMOM = 0; DETAIL = null;
   state = E.createRun({ items: clone(r.items), mode, start: 0, requiredEnd: len });
+  state.rid = r.id; state.adj = {}; state.adjBase = {}; state.hdone = [];
   try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch (e) {}
   render();
 };
@@ -460,7 +465,7 @@ function runView(lay) {
   const act = E.activeItem(state), b = lay.blocks.find(x => x.status === 'active'), ref = lay.referenceEnd;
   let cur;
   if (state.finished) { const last = state.history[state.history.length - 1]; const fin = last ? last.to : now;
-    cur = `<div class="card cur"><h2>Routine complete</h2><div class="name">Finished at ${clock(fin)}</div><div class="mut">Started ${clock(state.start)}</div><div class="mut">Took ${fmTotal(fin - state.start)}</div><div class="mut">${state.mode === 'required' ? 'Required' : 'Estimated'} end ${clock(ref)}</div></div>`; }
+    cur = `<div class="card cur"><h2>Routine complete</h2><div class="name">Finished at ${clock(fin)}</div><div class="mut">Started ${clock(state.start)}</div><div class="mut">Took ${fmTotal(fin - state.start)}</div><div class="mut">${state.mode === 'required' ? 'Required' : 'Estimated'} end ${clock(ref)}</div></div>` + adjCard(); }
   else if (state.free) { const left = Math.max(0, ref - now);
     cur = `<div class="card cur"><span class="chip" style="background:var(--brk)">Saved time</span><div class="name">Nothing scheduled</div><div class="big">${left > 0 ? mmss(left) : 'End time reached'}</div><div class="mut">${left > 0 ? 'left until the end time. Add an item on the Edit tab, or finish.' : 'The routine can be finished now.'}</div><button class="pri" style="min-height:56px;width:100%" onclick="apply(()=>E.finishRun(state,now))">Finish routine</button></div>`; }
   else if (act.type === 'buf' && act.kind === 'task') { cur = taskBufferCard(act, b); }
@@ -595,7 +600,7 @@ function subSegs(it) {
   if (le - t > 0.05) out.push({ from: t, to: le, it, sub: 'Buffer remainder', rem: true });
   return out;
 }
-function bufDone() { const c = BP && BP.cur; if (!c) { apply(() => E.complete(state, now)); return; } snap(); completeTask(c); replanBP(); render(); }
+function bufDone() { const c = BP && BP.cur; if (!c) { apply(() => E.complete(state, now)); return; } snap(); if (c.kind === 'habit') (state.hdone = state.hdone || []).push({ id: c.id, min: Math.max(0, now - c.start) }); completeTask(c); replanBP(); render(); }
 function bufPush() { const c = BP && BP.cur; if (!c) return; snap(); SKIP.add(c.key); BP.done.push({ name: c.name, key: c.key, from: c.start, to: now, partial: true }); BP.cur = null; replanBP(); render(); }
 // Push forward for a buffer with nothing left that fits: only if the buffer can move back a place
 // and some task could still fit before the required end (open-ended runs have no such limit).
@@ -616,6 +621,42 @@ function taskBufferCard(act) {
     + (c ? '' : '<div class="mut">' + (canPush ? 'Push forward moves this buffer back one place, or tap Done to move on.' : 'Tap Done to move on.') + '</div>')
     + `<button class="pri" style="min-height:56px;width:calc(50% - 4px);margin-top:8px" onclick="bufDone()">Done</button><button style="min-height:56px;width:calc(50% - 4px)" ${canPush ? '' : 'disabled'} onclick="${c ? 'bufPush()' : 'apply(()=>E.pushForward(state,now))'}">Push forward</button>`
     + (c ? `<button style="width:100%" onclick="apply(()=>E.complete(state,now))">End buffer early</button>` : '') + `</div>`;
+}
+
+/* ---------- after-run length adjustments (v1.3) ----------
+   Estimate items done in this run, and habits finished with Done in a task buffer, offer Keep / Update / Split.
+   Actual = total time on the item across all its blocks (pushed-forward time counts). Under 30 s is ignored.
+   Choices write straight into the saved routine item or habit. state.adjBase remembers each length from before. */
+const tookTxt = a => { const t = Math.round(a * 60); return Math.floor(t / 60) + ' min ' + pad(t % 60) + ' s'; };
+function adjRows() {
+  const rows = [], r = ROUTINES.find(x => x.id === state.rid);
+  if (r) state.items.forEach(it => {
+    if (it.type !== 'est' || it.status !== 'done' || !it.src || it.spent < 0.5) return;
+    const ri = r.items.find(x => x.uid === it.src); if (!ri || ri.type !== 'est') return;
+    rows.push({ key: 'i:' + it.src, name: ri.name, cur: ri.dur, a: it.spent, squeezed: !!it.squeezed, n: 1 });
+  });
+  const by = {};
+  (state.hdone || []).forEach(e => { if (e.min >= 0.5) (by[e.id] = by[e.id] || []).push(e.min); });
+  Object.keys(by).forEach(id => { const h = HABITS.find(x => String(x.id) === id); if (!h) return;
+    rows.push({ key: 'h:' + id, name: h.name, cur: h.dur, a: by[id].reduce((t, v) => t + v, 0) / by[id].length, n: by[id].length }); });
+  state.adjBase = state.adjBase || {};
+  rows.forEach(w => { if (state.adjBase[w.key] === undefined) state.adjBase[w.key] = w.cur; w.o = state.adjBase[w.key];
+    w.upd = Math.max(1, Math.round(w.a)); w.spl = Math.max(1, Math.round((w.o + w.a) / 2)); });
+  return rows;
+}
+function adjCard() {
+  const rows = adjRows(); if (!rows.length) return '';
+  const sel = state.adj || {};
+  return `<div class="card"><h2>Update lengths?</h2><div class="mut">A choice goes into the saved routine or habit as soon as you tap it.</div>` + rows.map(w => {
+    const c = sel[w.key] || 'keep', b = (k, l, v) => `<button class="tg${c === k ? ' on' : ''}" onclick="adjPick('${w.key}','${k}')">${l} ${v} min</button>`;
+    return `<div style="padding:8px 0;border-top:1px solid var(--line)"><div>${esc(w.name)}</div><div class="mut">${w.n > 1 ? 'average of ' + w.n + ': ' : 'took '}${tookTxt(w.a)}${w.squeezed ? ' (compressed run)' : ''}</div>${b('keep', 'Keep', w.o)}${b('update', 'Update', w.upd)}${b('split', 'Split', w.spl)}</div>`; }).join('') + `</div>`;
+}
+function adjPick(key, k) {
+  const w = adjRows().find(x => x.key === key); if (!w) return;
+  const v = k === 'keep' ? w.o : k === 'update' ? w.upd : w.spl;
+  if (key[0] === 'i') { const r = ROUTINES.find(x => x.id === state.rid), ri = r && r.items.find(x => 'i:' + x.uid === key); if (ri) ri.dur = v; }
+  else { const h = HABITS.find(x => 'h:' + x.id === key); if (h) h.dur = v; }
+  (state.adj = state.adj || {})[key] = k; render();
 }
 
 /* ---------- tasks tab actions ---------- */
@@ -823,7 +864,8 @@ function infoView() {
 <h3>Run a routine</h3><ul>
 <li>On the Run tab choose a routine, then either a required end time (blocks shrink to fit) or open-ended (the end moves later if you run long). Tap Start run.</li>
 <li>Tap Done when an item is finished, or Push forward to skip it once for this run only. A chime sounds when an item's time is up, and once more 30 seconds later.</li>
-<li>Estimate and Minimum items are fixed-length (a Minimum chimes once when its time is reached). Task buffers fill spare time with tasks and habits; break buffers are for rests. Buffers shrink first when you run late and grow when you are ahead.</li></ul>
+<li>Estimate and Minimum items are fixed-length (a Minimum chimes once when its time is reached). Task buffers fill spare time with tasks and habits; break buffers are for rests. Buffers shrink first when you run late and grow when you are ahead.</li>
+<li>When a run finishes, estimate items and habits you finished with Done in a task buffer offer Keep, Update or Split for their length, based on the time they took (time from pushed-forward blocks counts). Update and Split change the saved routine or habit.</li></ul>
 <h3>Edit routines</h3><ul>
 <li>The Edit routine tab changes the saved routines. During a run it edits only the items that have not started yet.</li>
 <li>Use the arrows to reorder. Tap the coloured icon to change an item's type or delete it.</li></ul>
@@ -866,7 +908,7 @@ async function syncWake() {
 }
 
 function render() {
-  syncNow(); const setupOn = !state && tab === 'run';
+  ensureUids(); syncNow(); const setupOn = !state && tab === 'run';
   $('setup').style.display = setupOn ? 'block' : 'none'; $('nav').style.display = 'grid';
   $('tRun').className = tab === 'run' ? 'on' : ''; $('tEdit').className = tab === 'edit' ? 'on' : ''; $('tTasks').className = tab === 'tasks' ? 'on' : '';
   if (setupOn) populateSetup();
