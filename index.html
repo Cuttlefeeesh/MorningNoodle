@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner v1.2.1</title>
+<title>Phone runner v1.2.2</title>
 <style>
 :root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -342,6 +342,8 @@ const fm = n => String(Math.round(n));
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const clone = o => JSON.parse(JSON.stringify(o));
 const pad = n => String(n).padStart(2, '0');
+const fmTotal = m => { const r = Math.round(m); return r < 60 ? r + ' min' : Math.floor(r / 60) + ' h ' + (r % 60) + ' min'; };
+const itemsTotal = items => items.reduce((a, i) => a + (+i.dur || 0), 0);
 let MUTED = false, actx = null, T0 = 0, DETAIL = null, ROUTINES = defaultRoutines(), RID = 'sprint', RDEL = null, runGain = null, armedSig = '', wake = null, lastWake = 0, impPending = false, lastEdit = 'len';
 function defaultRoutines() { return [
   { id: 'sprint', name: 'Sprint', mode: 'required', items: [{ type: 'buf', kind: 'task', name: 'Task time', dur: 0 }] },
@@ -447,7 +449,8 @@ function resetRun() { if (!resetPending) { resetPending = true; render(); setTim
 function runView(lay) {
   const act = E.activeItem(state), b = lay.blocks.find(x => x.status === 'active'), ref = lay.referenceEnd;
   let cur;
-  if (state.finished) { const last = state.history[state.history.length - 1]; cur = `<div class="card cur"><h2>Routine complete</h2><div class="name">Finished at ${clock(last ? last.to : now)}</div><div class="mut">Planned end ${clock(ref)}.</div></div>`; }
+  if (state.finished) { const last = state.history[state.history.length - 1]; const fin = last ? last.to : now;
+    cur = `<div class="card cur"><h2>Routine complete</h2><div class="name">Finished at ${clock(fin)}</div><div class="mut">Started ${clock(state.start)}</div><div class="mut">Took ${fmTotal(fin - state.start)}</div><div class="mut">${state.mode === 'required' ? 'Required' : 'Estimated'} end ${clock(ref)}</div></div>`; }
   else if (state.free) { const left = Math.max(0, ref - now);
     cur = `<div class="card cur"><span class="chip" style="background:var(--brk)">Saved time</span><div class="name">Nothing scheduled</div><div class="big">${left > 0 ? mmss(left) : 'End time reached'}</div><div class="mut">${left > 0 ? 'left until the end time. Add an item on the Edit tab, or finish.' : 'The routine can be finished now.'}</div><button class="pri" style="min-height:56px;width:100%" onclick="apply(()=>E.finishRun(state,now))">Finish routine</button></div>`; }
   else if (act.type === 'buf' && act.kind === 'task') { cur = taskBufferCard(act, b); }
@@ -718,7 +721,7 @@ function editView(lay) {
     return `<div class="rwrap"><div class="row rrow${live ? '' : ' dim'}">${arrows}${nameEl}${typeEl}${durEl}</div><div class="tm" style="font-size:.75rem;padding:0 0 4px 39px">${tm}</div></div>`;
   }).join('');
   const pe = lay.projectedEnd, ref = lay.referenceEnd, differs = !state.finished && !state.free && Math.abs(pe - ref) > 0.5;
-  return `<div class="card"><h2>Items</h2>${rows}<button onclick="addNew()" style="margin-top:8px"${state.finished ? ' disabled' : ''}>+ Add item</button></div>`
+  return `<div class="card"><h2>Items</h2>${rows}<button onclick="addNew()" style="margin-top:8px"${state.finished ? ' disabled' : ''}>+ Add item</button><div class="mut" style="margin-top:6px">Total length of items: ${fmTotal(itemsTotal(state.items))}</div></div>`
     + `<div class="card"><h2>${state.mode === 'required' ? 'Required' : 'Suggested'} end ${clock(ref)}</h2>${differs ? `<div style="font-size:1.05rem">Expected end ${clock(pe)}</div>` : ''}</div>` + muteCard();
 }
 
@@ -731,12 +734,13 @@ function routineEditor() {
   const rows = r.items.map((it, i) => `<div class="row rrow"><div class="arrows"><button aria-label="Move up" onclick="rMove(${i},-1)">&#9650;</button><button aria-label="Move down" onclick="rMove(${i},1)">&#9660;</button></div>`
     + `<input class="rn" value="${esc(it.name)}" onchange="rSet(${i},'name',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();rSet(${i},'name',this.value);rAdd(${i}+1)}">`
     + typeCtl(it, `rSet(${i},'type',this.value)`, RDELI === i, `rSet(${i},'type','del')`)
-    + `<input class="rd" type="number" min="0" step="1" value="${fm(it.dur)}" onchange="rSet(${i},'dur',this.value)"><span class="u">min</span></div>`).join('');
+    + `<input class="rd" type="number" min="0" step="1" value="${fm(it.dur)}" oninput="rSet(${i},'dur',this.value)" onchange="rSet(${i},'dur',this.value)"><span class="u">min</span></div>`).join('');
   return `<div class="card"><h2>Edit routine</h2><label>Routine <select onchange="RID=this.value;RDEL=null;render()">${ROUTINES.map(x => `<option value="${esc(x.id)}"${x.id === r.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label><br>`
     + `<label>Name <input value="${esc(r.name)}" onchange="rRename(this.value)"></label><br><label>Default end <select onchange="rMode(this.value)"><option value="required"${r.mode !== 'open' ? ' selected' : ''}>Required end time</option><option value="open"${r.mode === 'open' ? ' selected' : ''}>Open-ended</option></select></label>`
-    + rows + `<button onclick="rAdd()" style="margin-top:8px">+ Add item</button><div style="margin-top:8px"><button onclick="rNew()">New routine</button><button onclick="rRemove()"${r.id === 'sprint' ? ' disabled' : ''}>${RDEL === r.id ? 'Confirm delete?' : 'Delete routine'}</button></div></div>` + muteCard();
+    + rows + `<button onclick="rAdd()" style="margin-top:8px">+ Add item</button><div class="mut" id="rTotal" style="margin-top:6px">Total length of routine: ${fmTotal(itemsTotal(r.items))}</div><div style="margin-top:8px"><button onclick="rNew()">New routine</button><button onclick="rRemove()"${r.id === 'sprint' ? ' disabled' : ''}>${RDEL === r.id ? 'Confirm delete?' : 'Delete routine'}</button></div></div>` + muteCard();
 }
-function rSet(i, f, v) { const it = rt().items[i]; if (!it) return; if (f === 'name') it.name = v.trim() || 'Item'; else if (f === 'dur') it.dur = Math.max(0, Math.round(parseFloat(v)) || 0);
+function rTotalUpdate() { const el = $('rTotal'); if (el) el.textContent = 'Total length of routine: ' + fmTotal(itemsTotal(rt().items)); }
+function rSet(i, f, v) { const it = rt().items[i]; if (!it) return; if (f === 'name') it.name = v.trim() || 'Item'; else if (f === 'dur') { it.dur = Math.max(0, Math.round(parseFloat(v)) || 0); rTotalUpdate(); }
   else if (v === 'del') { if (RDELI !== i) { RDELI = i; render(); setTimeout(() => { if (RDELI === i) { RDELI = null; if (!typing()) render(); } }, 4000); } else rDel(i); return; }
   else { if (v.startsWith('buf:')) { it.type = 'buf'; it.kind = v.slice(4); } else { it.type = v; delete it.kind; } save(); render(); return; }
   save(); }
@@ -810,6 +814,11 @@ function render() {
 $('tRun').onclick = () => go('run'); $('tEdit').onclick = () => go('edit'); $('tTasks').onclick = () => go('tasks');
 try { restore(); } catch (e) {}
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+// Select-on-focus: duration boxes select their number; a name box still holding the "New item" placeholder selects it.
+document.addEventListener('focusin', e => { const el = e.target;
+  if (!el || el.tagName !== 'INPUT') return;
+  const hit = el.classList.contains('rd') || (el.classList.contains('rn') && el.value === 'New item');
+  if (hit) setTimeout(() => { try { el.select(); } catch (x) {} }, 0); });
 document.addEventListener('pointerdown', () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state !== 'running') actx.resume(); } catch (e) {} }, { passive: true });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { syncWake(); if (state) render(); } });
 const typing = () => { const a = document.activeElement; return !!a && $('app').contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName); };
