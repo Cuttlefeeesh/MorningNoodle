@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner v1.3</title>
+<title>Phone runner v1.4.1</title>
 <style>
 :root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -351,7 +351,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
    copy cannot safely read or write (renamed or removed fields). Adding optional fields keeps the same SCHEMA.
    Saving is switched off (LOCK) in a tab when the saved data was written by another tab or by a newer
    SCHEMA, so a stale tab never overwrites newer data. */
-const APP_VERSION = '1.3', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
+const APP_VERSION = '1.4.1', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
 let LOCK = null, lastSaved = '', ALIVE_NOTE = false, CONVERTED_NOTE = '';
 const pad = n => String(n).padStart(2, '0');
 const fmTotal = m => { const r = Math.round(m); return r < 60 ? r + ' min' : Math.floor(r / 60) + ' h ' + (r % 60) + ' min'; };
@@ -450,7 +450,7 @@ function itemAct(kind, id) {
   if (kind === 'up') apply(() => E.moveItem(state, id, -1, now)); else if (kind === 'down') apply(() => E.moveItem(state, id, 1, now));
   else if (kind === 'del') { open = null; apply(() => E.deleteItem(state, id, now)); }
 }
-const go = t => { tab = t; DETAIL = null; render(); };
+const go = t => { tab = t; DETAIL = null; RMSG = ''; RFB = ''; render(); };
 function pick(i) { const s = segs[i]; if (!s) return; let x;
   if (s.free) x = `Saved time ${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`;
   else { const it = s.it; x = `${s.sub || it.name}. ` + (s.past ? `${s.partial ? 'Pushed forward after' : 'Done after'} ${fm(s.to - s.from)} min, ${clock(s.from)} to ${clock(s.to)}.` : s.now ? `Running since ${clock(s.from)}, ${fm(s.elapsed)} min so far.` : `${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`);
@@ -788,7 +788,7 @@ function routineEditor() {
     + `<input class="rd" type="number" min="0" step="1" value="${fm(it.dur)}" oninput="rSet(${i},'dur',this.value)" onchange="rSet(${i},'dur',this.value)"><span class="u">min</span></div>`).join('');
   return `<div class="card"><h2>Edit routine</h2><label>Routine <select onchange="RID=this.value;RDEL=null;render()">${ROUTINES.map(x => `<option value="${esc(x.id)}"${x.id === r.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label><br>`
     + `<label>Name <input value="${esc(r.name)}" onchange="rRename(this.value)"></label><br><label>Default end <select onchange="rMode(this.value)"><option value="required"${r.mode !== 'open' ? ' selected' : ''}>Required end time</option><option value="open"${r.mode === 'open' ? ' selected' : ''}>Open-ended</option></select></label>`
-    + rows + `<button onclick="rAdd()" style="margin-top:8px">+ Add item</button><div class="mut" id="rTotal" style="margin-top:6px">Total length of routine: ${fmTotal(itemsTotal(r.items))}</div><div style="margin-top:8px"><button onclick="rNew()">New routine</button><button onclick="rRemove()"${r.id === 'sprint' ? ' disabled' : ''}>${RDEL === r.id ? 'Confirm delete?' : 'Delete routine'}</button></div></div>` + muteCard();
+    + rows + `<button onclick="rAdd()" style="margin-top:8px">+ Add item</button><div class="mut" id="rTotal" style="margin-top:6px">Total length of routine: ${fmTotal(itemsTotal(r.items))}</div><div style="margin-top:8px"><button onclick="rNew()">New routine</button><button onclick="rDup()">Copy routine</button><button onclick="rExport()">Export routine</button><button onclick="rRemove()"${r.id === 'sprint' ? ' disabled' : ''}>${RDEL === r.id ? 'Confirm delete?' : 'Delete routine'}</button></div>${rMsgHTML()}</div>` + muteCard();
 }
 function rTotalUpdate() { const el = $('rTotal'); if (el) el.textContent = 'Total length of routine: ' + fmTotal(itemsTotal(rt().items)); }
 function rSet(i, f, v) { const it = rt().items[i]; if (!it) return; if (f === 'name') it.name = v.trim() || 'Item'; else if (f === 'dur') { it.dur = Math.max(0, Math.round(parseFloat(v)) || 0); rTotalUpdate(); }
@@ -803,12 +803,44 @@ function rMode(v) { rt().mode = v; save(); }
 function rNew() { const r = { id: 'r' + Date.now(), name: 'New routine', mode: 'required', items: [] }; ROUTINES.push(r); RID = r.id; render(); }
 function rRemove() { const r = rt(); if (r.id === 'sprint') return; if (RDEL !== r.id) { RDEL = r.id; render(); return; } ROUTINES = ROUTINES.filter(x => x.id !== r.id); RID = 'sprint'; RDEL = null; render(); }
 
+/* ---------- single-routine copy, export and import (v1.4.1) ---------- */
+const ROUTINE_EXP = 'PHONERUNNER_ROUTINE_V1:';
+let RMSG = '', RFB = '';
+function rMsgHTML() { return (RMSG ? `<div class="mut" style="margin-top:6px">${esc(RMSG)}</div>` : '') + (RFB ? `<textarea readonly style="width:100%;height:80px;margin-top:6px" onfocus="this.select()">${esc(RFB)}</textarea>` : ''); }
+function uniqueRoutineName(base) { let n = base, k = 2; while (ROUTINES.some(x => x.name === n)) n = base + ' (' + (k++) + ')'; return n; }
+function rDup() {
+  const r = rt(), c = clone(r); c.id = 'r' + Date.now(); c.name = uniqueRoutineName(r.name + ' (copy)'); c.items.forEach(i => { i.uid = newUid(); });
+  ROUTINES.push(c); RID = c.id; RDEL = null; RDELI = null; RFB = ''; RMSG = 'Copied as "' + c.name + '".'; render();
+}
+function rExport() {
+  const r = rt(), t = ROUTINE_EXP + JSON.stringify({ sv: SCHEMA, ver: APP_VERSION, routine: { name: r.name, mode: r.mode === 'open' ? 'open' : 'required',
+    items: r.items.map(i => i.type === 'buf' ? { type: 'buf', kind: i.kind === 'break' ? 'break' : 'task', name: i.name, dur: i.dur } : { type: i.type, name: i.name, dur: i.dur }) } });
+  const ok = () => { RFB = ''; RMSG = 'Copied "' + r.name + '" to the clipboard. Paste it into the import box on the start screen to add it.'; render(); };
+  const bad = () => { RFB = t; RMSG = 'Clipboard unavailable: select and copy the text below.'; render(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, bad); else bad();
+}
+function importRoutine(v) {
+  const m = $('backupMsg'); let d;
+  try { d = JSON.parse(v.slice(ROUTINE_EXP.length)); } catch (e) { m.textContent = 'Could not read that routine export.'; return; }
+  if (d && (d.sv || 1) > SCHEMA) { m.textContent = 'That export is from a newer version (' + (d.ver || '?') + ') and this one (v' + APP_VERSION + ') cannot read it safely.'; return; }
+  const s = d && d.routine;
+  if (!s || typeof s.name !== 'string' || !Array.isArray(s.items)) { m.textContent = 'The routine export is incomplete.'; return; }
+  const items = s.items.filter(i => i && ['est', 'min', 'buf'].includes(i.type)).map(i => {
+    const o = { type: i.type, name: String(i.name || 'Item'), dur: Math.max(0, Math.round(parseFloat(i.dur)) || 0), uid: newUid() };
+    if (i.type === 'buf') o.kind = i.kind === 'break' ? 'break' : 'task'; return o; });
+  const r = { id: 'r' + Date.now(), name: uniqueRoutineName(s.name.trim() || 'Routine'), mode: s.mode === 'open' ? 'open' : 'required', items };
+  ROUTINES.push(r); RID = r.id; impPending = false; endIsRec = true; lastEdit = 'len'; $('impBox').value = ''; setMode(r.mode);
+  m.textContent = 'Imported routine "' + r.name + '"' + (items.length < s.items.length ? ' (' + (s.items.length - items.length) + ' invalid item(s) skipped)' : '') + '.';
+  render();
+}
+
 /* ---------- backup ---------- */
 const EXP = 'PHONERUNNER_EXPORT_V1:';
 function exportAll() { const t = EXP + JSON.stringify({ sv: SCHEMA, ver: APP_VERSION, routines: ROUTINES, tasks: TASKS, habits: HABITS, day: DAY }), fb = $('expFb'), m = $('backupMsg');
   const show = () => { fb.value = t; fb.style.display = 'block'; fb.select(); m.textContent = 'Clipboard unavailable: select and copy the text below.'; };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => { fb.style.display = 'none'; m.textContent = 'Copied export to clipboard.'; }, show); else show(); }
 function importAll() { const v = $('impBox').value.trim(), m = $('backupMsg'); let d;
+  if (v.startsWith(ROUTINE_EXP)) { importRoutine(v); return; }
   if (!v.startsWith(EXP)) { m.textContent = 'That is not an export.'; return; }
   try { d = JSON.parse(v.slice(EXP.length)); } catch (e) { m.textContent = 'Could not read that export.'; return; }
   if (d && (d.sv || 1) > SCHEMA) { m.textContent = 'That export is from a newer version (' + (d.ver || '?') + ') and this one (v' + APP_VERSION + ') cannot read it safely.'; return; }
@@ -868,7 +900,8 @@ function infoView() {
 <li>When a run finishes, estimate items and habits you finished with Done in a task buffer offer Keep, Update or Split for their length, based on the time they took (time from pushed-forward blocks counts). Update and Split change the saved routine or habit.</li></ul>
 <h3>Edit routines</h3><ul>
 <li>The Edit routine tab changes the saved routines. During a run it edits only the items that have not started yet.</li>
-<li>Use the arrows to reorder. Tap the coloured icon to change an item's type or delete it.</li></ul>
+<li>Use the arrows to reorder. Tap the coloured icon to change an item's type or delete it.</li>
+<li>Copy routine duplicates the one you are editing. Export routine copies it to the clipboard; paste it into the import box on the start screen to add it as a new routine (it never replaces anything).</li></ul>
 <h3>Tasks and habits</h3><ul>
 <li>Add tasks by name; you will be asked for a length, urgency and importance. Habits come back on their own schedule (X times in Y days, at least Z days apart). New day advances the day counter.</li></ul>
 <h3>Your data</h3><ul>
