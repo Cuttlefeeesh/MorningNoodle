@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner v1.4.1</title>
+<title>Phone runner v1.5</title>
 <style>
 :root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -54,6 +54,7 @@ button.tg.on{background:var(--accent);color:var(--on);font-weight:600}
 .arrows{display:flex;flex-direction:column;flex:none}
 .arrows button{width:34px;height:22px;min-height:22px;margin:0;padding:0;font-size:.7rem;line-height:1;border-radius:4px}
 .rrow input.rn{flex:1;min-width:0;width:auto;min-height:40px}
+.rrow .ck{flex:none;width:26px;height:26px;margin:0 2px 0 0}
 .rrow input.rd{width:50px;min-height:40px;padding:4px}
 .rrow .dq{background:#e5484d;color:#fff;font-weight:600;flex:none;min-height:40px;margin:0;padding:0 8px}
 .rwrap{border-top:1px solid var(--line)}.rwrap:first-child{border-top:0}
@@ -105,7 +106,7 @@ const ENGINE = (function () {
   const spentOf = (it, now) => it.spent + (it.status === 'active' ? Math.max(0, now - it.activeSince) : 0);
   // A block always gets its full planned length: time spent in earlier (pushed-forward) blocks is not credited.
   const baseRemaining = (it, now) => Math.max(0, it.dur - (it.status === 'active' ? Math.max(0, now - it.activeSince) : 0));
-  const totalPlanned = s => sum(s.items, i => i.dur);
+  const totalPlanned = s => sum(s.items.filter(i => !i.checked), i => i.dur);   // checked-off items no longer count
   // Required mode: the fixed end. Open mode: start + everything planned (moves when items are added or removed).
   const referenceEnd = s => s.mode === 'required' ? s.requiredEnd : s.start + totalPlanned(s);
   const activeItem = s => s.items.find(i => i.status === 'active') || null;
@@ -214,7 +215,7 @@ const ENGINE = (function () {
     for (const b of lay.blocks) {
       const it = byId(s, b.id);
       if (b.hidden) { it.status = 'skipped'; continue; }     // hidden buffers up to the next visible item are passed over
-      it.status = 'active'; it.activeSince = now; relock(s, now); activated = true; break;
+      it.status = 'active'; it.activeSince = now; it.ret = false; relock(s, now); activated = true; break;
     }
     if (!activated) {
       s.items.forEach(i => { if (i.status === 'pending') i.status = 'skipped'; });
@@ -265,7 +266,7 @@ const ENGINE = (function () {
     s.items.splice(idx, 1);          // target is now at j - 1
     s.items.splice(j, 0, act);       // pushed item lands right after it
     const target = s.items[j - 1];
-    target.status = 'active'; target.activeSince = now; relock(s, now);
+    target.status = 'active'; target.activeSince = now; target.ret = false; relock(s, now);
     return { state: s, error: null };
   }
 
@@ -295,14 +296,16 @@ const ENGINE = (function () {
     const k = s.items.findIndex(i => i.id === id);
     if (k < 0) return { state: s, error: 'no such item' };
     if (s.items[k].status !== 'pending') return { state: s, error: 'only items not yet started can be moved' };
-    const k2 = k + (dir < 0 ? -1 : 1);
+    const dstep = dir < 0 ? -1 : 1;
+    let k2 = k + dstep;
+    while (s.items[k2] && s.items[k2].checked && s.items[k2].status === 'done') k2 += dstep;   // checked-off items are stepped over
     if (k2 >= 0 && s.items[k2] && s.items[k2].status === 'active') {   // Up on the first waiting item = push forward
       if (dir >= 0 || now === undefined) return { state: s, error: 'cannot move there' };
       const r = pushForward(state, now);
       return (r.error || activeItem(r.state).id !== id) ? { state: s, error: r.error || 'cannot move there' } : r;
     }
     if (k2 < 0 || k2 >= s.items.length || s.items[k2].status !== 'pending') return { state: s, error: 'cannot move there' };
-    [s.items[k], s.items[k2]] = [s.items[k2], s.items[k]]; relock(s, now);
+    [s.items[k], s.items[k2]] = [s.items[k2], s.items[k]]; s.items[k].ret = false; s.items[k2].ret = false; relock(s, now);
     return { state: s, error: null };
   }
   // patch may hold name, dur; type/kind only for items not yet started. The active item keeps its time spent.
@@ -322,6 +325,61 @@ const ENGINE = (function () {
     return { state: s, error: null };
   }
 
+  /* ---------- check off (v1.5) ----------
+     Marks an item that has not finished as done without timing it: no history block, nothing spent, and it
+     stops counting toward an open-ended run's suggested end. The saved routine is not touched. The active
+     item is simply completed. Un-checking puts the item back in its original slot; if that slot is already
+     past (the item sits before the active one) it goes right after the active item instead, ahead of other
+     such items that came after it originally. Each returned item remembers the item that preceded it (ra) and
+     the order in which it was returned (rseq), which is enough to rebuild the original order later. */
+  function checkOff(state, id, now) {
+    const s = clone(state);
+    const it = byId(s, id);
+    if (!it) return { state: s, error: 'no such item' };
+    if (s.finished) return { state: s, error: 'run finished' };
+    if (it.type === 'buf') return { state: s, error: 'buffers cannot be checked off' };
+    if (it.status === 'active') return complete(state, now);
+    if (it.status !== 'pending') return { state: s, error: 'only items not yet finished can be checked off' };
+    it.status = 'done'; it.checked = true; it.spent = 0; it.ret = false;
+    relock(s, now);
+    return { state: s, error: null };
+  }
+  function uncheck(state, id, now) {
+    const s = clone(state);
+    const it = byId(s, id);
+    if (!it || !it.checked || it.status !== 'done') return { state: s, error: 'not checked off' };
+    if (s.finished) return { state: s, error: 'run finished' };
+    const a = s.items.findIndex(i => i.status === 'active');
+    const k = s.items.indexOf(it);
+    it.checked = false; it.status = 'pending'; it.spent = 0;
+    if (a < 0) {                                   // nothing is running (saved time): it becomes the next item
+      s.items.splice(k, 1); s.items.push(it);
+      if (s.free) { s.history.push({ free: true, name: 'Saved time', from: s.free.since, to: now }); s.free = null; activateNext(s, now); }
+      return { state: s, error: null };
+    }
+    if (k > a) { relock(s, now); return { state: s, error: null }; }   // slot still ahead: stays where it is
+    // Slot already past. L = the past in its original order, with earlier returned items put back where they came from.
+    const L = s.items.slice(0, a).map(i => i.id);
+    let waiting = s.items.filter(i => i.ret && i.status === 'pending').sort((p, q) => (p.rseq || 0) - (q.rseq || 0));
+    while (waiting.length) {
+      const left = [];
+      waiting.forEach(r => {
+        const ai = r.ra == null ? -1 : L.indexOf(r.ra);
+        if (r.ra == null || ai >= 0) L.splice(ai + 1, 0, r.id); else left.push(r);
+      });
+      if (left.length === waiting.length) { left.forEach(r => L.push(r.id)); break; }
+      waiting = left;
+    }
+    const xi = L.indexOf(id);
+    it.ra = xi > 0 ? L[xi - 1] : null; it.ret = true; s.rseq = (s.rseq || 0) + 1; it.rseq = s.rseq;
+    s.items.splice(k, 1);                          // the active item is now at a - 1, so a is the slot right after it
+    let pos = a;
+    while (pos < s.items.length && s.items[pos].ret && s.items[pos].status === 'pending' && L.indexOf(s.items[pos].id) < xi) pos++;
+    s.items.splice(pos, 0, it);
+    relock(s, now);
+    return { state: s, error: null };
+  }
+
   /* ---------- readable dump ---------- */
   const f1 = n => (Math.round(n * 10) / 10).toFixed(1);
   function describe(lay, s) {
@@ -336,7 +394,7 @@ const ENGINE = (function () {
     return lines.join('\n');
   }
 
-  return { createRun, layout, complete, finishRun, pushForward, addItem, deleteItem, moveItem, updateItem,
+  return { createRun, layout, complete, finishRun, pushForward, addItem, deleteItem, moveItem, updateItem, checkOff, uncheck,
            activeItem, describe, constants: { FLOOR_FRACTION, GROW_WEIGHT_MIN, BUFFER_MIN_SHOW } };
 })();
 </script>
@@ -351,7 +409,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
    copy cannot safely read or write (renamed or removed fields). Adding optional fields keeps the same SCHEMA.
    Saving is switched off (LOCK) in a tab when the saved data was written by another tab or by a newer
    SCHEMA, so a stale tab never overwrites newer data. */
-const APP_VERSION = '1.4.1', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
+const APP_VERSION = '1.5', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
 let LOCK = null, lastSaved = '', ALIVE_NOTE = false, CONVERTED_NOTE = '';
 const pad = n => String(n).padStart(2, '0');
 const fmTotal = m => { const r = Math.round(m); return r < 60 ? r + ' min' : Math.floor(r / 60) + ' h ' + (r % 60) + ' min'; };
@@ -498,7 +556,7 @@ function runView(lay) {
     + `<div class="detail" id="detail"></div><div class="legend"><span><span class="chip" style="background:var(--est)">&nbsp;</span> Estimate</span><span><span class="chip" style="background:var(--min)">&nbsp;</span> Minimum</span><span><span class="chip" style="background:var(--task)">&nbsp;</span> Task buffer</span><span><span class="chip" style="background:var(--brk)">&nbsp;</span> Break buffer or saved time</span></div>`
     + `</div>`
     
-    + `<button onclick="resetRun()">${resetPending ? 'Confirm: discard this run?' : 'Back to setup'}</button>`;
+    + `<button onclick="resetRun()">${resetPending ? 'Confirm: finished with this run?' : 'Back to setup'}</button>`;
 }
 /* ---------- tasks and habits (mockup data; scoring ported from routine18_4) ---------- */
 let DAY = 1, PLANS = {}, taskSeq = 0, habitSeq = 0;
@@ -750,6 +808,7 @@ function addNew(at) {
   const it = state && itemById('i' + state.nextId);
   if (it && (it.status === 'pending' || it.status === 'active')) focusField('rn_' + it.id);
 }
+function itemTick(id, v) { if (v) apply(() => E.checkOff(state, id, now)); else apply(() => E.uncheck(state, id, now)); }
 function runEnter(id, v) {
   apply(() => E.updateItem(state, id, { name: v.trim() || 'Item' }, now));
   addNew(state.items.findIndex(i => i.id === id) + 1);
@@ -758,21 +817,23 @@ function editView(lay) {
   const rows = state.items.map(it => {
     const b = lay.blocks.find(x => x.id === it.id), pend = it.status === 'pending', live = pend || it.status === 'active';
     let tm; const h = [...state.history].reverse().find(x => x.id === it.id && !x.partial);
-    if (it.status === 'done') tm = h ? `${clock(h.from)}-${clock(h.to)} · ${fm(h.to - h.from)} min` : 'done';
+    if (it.checked) tm = 'checked off';
+    else if (it.status === 'done') tm = h ? `${clock(h.from)}-${clock(h.to)} · ${fm(h.to - h.from)} min` : 'done';
     else if (it.status === 'skipped') tm = 'skipped'; else if (b && b.hidden) tm = 'no room right now';
     else tm = it.status === 'active' ? `now, to ${clock(b.end)} · ${fm(b.len)} min left` : `${clock(b.start)}-${clock(b.end)} · ${fm(b.len)} min`;
     const pl = PLANS[it.id]; if (pl && pl.length) tm += ' · ' + pl.map(t => t.name).join(', ');
     const arrows = pend ? `<div class="arrows"><button aria-label="Move up" onclick="itemAct('up','${it.id}')">&#9650;</button><button aria-label="Move down" onclick="itemAct('down','${it.id}')">&#9660;</button></div>` : '<span style="width:34px;flex:none"></span>';
     const nameEl = live ? `<input class="rn" id="rn_${it.id}" value="${esc(it.name)}" onchange="runSet('${it.id}','name',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();runEnter('${it.id}',this.value)}">`
-      : `<div style="flex:1;min-width:0;min-height:40px;display:flex;align-items:center">${esc(it.name)}</div>`;
+      : `<div style="flex:1;min-width:0;min-height:40px;display:flex;align-items:center${it.checked ? ';text-decoration:line-through' : ''}">${esc(it.name)}</div>`;
+    const tick = (it.type !== 'buf' && (live || it.checked)) ? `<input type="checkbox" class="ck" aria-label="Check off" ${it.checked ? 'checked' : ''} onchange="itemTick('${it.id}', this.checked)">` : '<span class="ck"></span>';
     const typeEl = pend ? typeCtl(it, `runSet('${it.id}','type',this.value)`, DELI === it.id, `runSet('${it.id}','type','del')`)
       : `<span class="tsel" style="background:${colorFor(it)};opacity:${live ? 1 : .45}" title="${typeLabel(it)}"></span>`;
     const durEl = live ? `<input class="rd" type="number" min="0" step="1" value="${fm(it.dur)}" onchange="runSet('${it.id}','dur',this.value)"><span class="u">min</span>`
       : `<span class="u" style="width:78px;text-align:right">${fm(it.dur)} min</span>`;
-    return `<div class="rwrap"><div class="row rrow${live ? '' : ' dim'}">${arrows}${nameEl}${typeEl}${durEl}</div><div class="tm" style="font-size:.75rem;padding:0 0 4px 39px">${tm}</div></div>`;
+    return `<div class="rwrap"><div class="row rrow${live ? '' : ' dim'}">${tick}${arrows}${nameEl}${typeEl}${durEl}</div><div class="tm" style="font-size:.75rem;padding:0 0 4px 72px">${tm}</div></div>`;
   }).join('');
   const pe = lay.projectedEnd, ref = lay.referenceEnd, differs = !state.finished && !state.free && Math.abs(pe - ref) > 0.5;
-  return `<div class="card"><h2>Items</h2>${rows}<button onclick="addNew()" style="margin-top:8px"${state.finished ? ' disabled' : ''}>+ Add item</button><div class="mut" style="margin-top:6px">Total length of items: ${fmTotal(itemsTotal(state.items))}</div></div>`
+  return `<div class="card"><h2>Items</h2>${rows}<button onclick="addNew()" style="margin-top:8px"${state.finished ? ' disabled' : ''}>+ Add item</button><div class="mut" style="margin-top:6px">Total length of items: ${fmTotal(itemsTotal(state.items.filter(i => !i.checked)))}</div></div>`
     + `<div class="card"><h2>${state.mode === 'required' ? 'Required' : 'Suggested'} end ${clock(ref)}</h2>${differs ? `<div style="font-size:1.05rem">Expected end ${clock(pe)}</div>` : ''}</div>` + muteCard();
 }
 
@@ -901,6 +962,7 @@ function infoView() {
 <h3>Edit routines</h3><ul>
 <li>The Edit routine tab changes the saved routines. During a run it edits only the items that have not started yet.</li>
 <li>Use the arrows to reorder. Tap the coloured icon to change an item's type or delete it.</li>
+<li>During a run, tick the box on an Estimate or Minimum item to check it off without timing it. It drops out of the plan, and the time it frees goes to the buffers (or moves an open-ended run's suggested end earlier). Ticking the current item is the same as Done. Un-tick to bring it back: to its original place, or, if that place has already passed, right after the current item. Checked-off items do not appear in the after-run length updates.</li>
 <li>Copy routine duplicates the one you are editing. Export routine copies it to the clipboard; paste it into the import box on the start screen to add it as a new routine (it never replaces anything).</li></ul>
 <h3>Tasks and habits</h3><ul>
 <li>Add tasks by name; you will be asked for a length, urgency and importance. Habits come back on their own schedule (X times in Y days, at least Z days apart). New day advances the day counter.</li></ul>
