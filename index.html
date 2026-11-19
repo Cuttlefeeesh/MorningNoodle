@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner v1.2</title>
+<title>Phone runner v1.5.1</title>
 <style>
 :root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -30,9 +30,9 @@ input[type=number]{width:72px}
 .nowbig{font-size:1.4rem;font-weight:600}.endbig{font-size:2.1rem;font-weight:800;line-height:1.1;text-align:right}
 .late{color:var(--warn)}.early{color:var(--brk)}
 .bar-wrap{position:relative;padding:4px 6px;margin:4px 0 8px}
-.bar{display:flex;height:48px;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
-.s{position:relative;height:100%;min-width:3px;overflow:hidden;box-shadow:inset -1px 0 0 var(--bg)}
-.s.past{opacity:.4}.s.now{box-shadow:inset 0 0 0 3px var(--txt),inset -1px 0 0 var(--bg)}
+.bar{position:relative;height:48px;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+.s{position:absolute;top:0;bottom:0;min-width:3px;overflow:hidden;box-shadow:inset -1px 0 0 var(--bg)}
+.s.past::after{content:"";position:absolute;top:0;right:0;bottom:0;left:0;background:var(--bg);opacity:.6;pointer-events:none}.s.now{box-shadow:inset 0 0 0 3px var(--txt),inset -1px 0 0 var(--bg)}
 .s.partial{background-image:repeating-linear-gradient(135deg,rgba(0,0,0,.35) 0 3px,transparent 3px 6px)}
 .s .fill{position:absolute;left:0;top:0;bottom:0;background:#000;opacity:.3}
 .s.grey{background:repeating-linear-gradient(135deg,#3a3d40 0 4px,#2c2f32 4px 8px)!important}.s.rem{opacity:.55}
@@ -54,6 +54,7 @@ button.tg.on{background:var(--accent);color:var(--on);font-weight:600}
 .arrows{display:flex;flex-direction:column;flex:none}
 .arrows button{width:34px;height:22px;min-height:22px;margin:0;padding:0;font-size:.7rem;line-height:1;border-radius:4px}
 .rrow input.rn{flex:1;min-width:0;width:auto;min-height:40px}
+.rrow .ck{flex:none;width:26px;height:26px;margin:0 2px 0 0}
 .rrow input.rd{width:50px;min-height:40px;padding:4px}
 .rrow .dq{background:#e5484d;color:#fff;font-weight:600;flex:none;min-height:40px;margin:0;padding:0 8px}
 .rwrap{border-top:1px solid var(--line)}.rwrap:first-child{border-top:0}
@@ -62,6 +63,8 @@ button.tg.on{background:var(--accent);color:var(--on);font-weight:600}
 .tsel select{position:absolute;left:0;top:0;width:100%;height:100%;min-height:0;opacity:0;padding:0}
 .ed{padding:8px 0 10px;display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end}
 .ed label{display:flex;flex-direction:column;font-size:.75rem;color:var(--mut)}
+.banner{background:#33261a;border:1px solid var(--warn);border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:.9rem}.banner:empty{display:none}.banner button{margin-top:6px}
+.info h3{font-size:.95rem;margin:14px 0 4px;color:var(--txt)}.info p,.info li{font-size:.9rem;margin:4px 0}.info ul{padding-left:20px;margin:4px 0}
 #log{font:.8rem/1.5 monospace;white-space:pre-wrap;color:var(--mut)}
 nav{position:fixed;left:0;right:0;bottom:0;display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
 nav button{margin:0;border-radius:0;min-height:56px;background:transparent}
@@ -70,6 +73,7 @@ nav button.on{color:var(--accent);font-weight:700;box-shadow:inset 0 3px 0 var(-
 </head>
 <body>
 <div class="wrap">
+<div id="banner" class="banner"></div>
 <div id="setup" class="card">
   <h2>Start a run</h2>
   <label>Routine <select id="preset"></select></label><br>
@@ -102,7 +106,7 @@ const ENGINE = (function () {
   const spentOf = (it, now) => it.spent + (it.status === 'active' ? Math.max(0, now - it.activeSince) : 0);
   // A block always gets its full planned length: time spent in earlier (pushed-forward) blocks is not credited.
   const baseRemaining = (it, now) => Math.max(0, it.dur - (it.status === 'active' ? Math.max(0, now - it.activeSince) : 0));
-  const totalPlanned = s => sum(s.items, i => i.dur);
+  const totalPlanned = s => sum(s.items.filter(i => !i.checked), i => i.dur);   // checked-off items no longer count
   // Required mode: the fixed end. Open mode: start + everything planned (moves when items are added or removed).
   const referenceEnd = s => s.mode === 'required' ? s.requiredEnd : s.start + totalPlanned(s);
   const activeItem = s => s.items.find(i => i.status === 'active') || null;
@@ -113,7 +117,7 @@ const ENGINE = (function () {
     const type = spec.type;
     return {
       id: 'i' + s.nextId, type, kind: type === 'buf' ? (spec.kind || 'task') : 'work',
-      name: spec.name, dur: spec.dur, status: 'pending', spent: 0, activeSince: null, lockedEnd: null
+      name: spec.name, dur: spec.dur, src: spec.uid || null, status: 'pending', spent: 0, activeSince: null, lockedEnd: null
     };
   }
 
@@ -211,7 +215,7 @@ const ENGINE = (function () {
     for (const b of lay.blocks) {
       const it = byId(s, b.id);
       if (b.hidden) { it.status = 'skipped'; continue; }     // hidden buffers up to the next visible item are passed over
-      it.status = 'active'; it.activeSince = now; relock(s, now); activated = true; break;
+      it.status = 'active'; it.activeSince = now; it.ret = false; relock(s, now); activated = true; break;
     }
     if (!activated) {
       s.items.forEach(i => { if (i.status === 'pending') i.status = 'skipped'; });
@@ -235,6 +239,7 @@ const ENGINE = (function () {
     if (!act) return { state: s, error: 'no active item' };
     act.spent = spentOf(act, now);
     s.history.push({ id: act.id, name: act.name, from: act.activeSince, to: now, partial: false });
+    act.squeezed = !!act.squeezed || (act.lockedEnd != null && act.lockedEnd - act.activeSince < act.dur - 0.05);
     act.status = 'done'; act.activeSince = null;
     activateNext(s, now);
     return { state: s, error: null };
@@ -255,12 +260,13 @@ const ENGINE = (function () {
     const act = s.items[idx];
     act.spent = spentOf(act, now);
     s.history.push({ id: act.id, name: act.name, from: act.activeSince, to: now, partial: true });
+    act.squeezed = !!act.squeezed || (act.lockedEnd != null && act.lockedEnd - act.activeSince < act.dur - 0.05);
     act.status = 'pending'; act.activeSince = null;
     for (let k = idx + 1; k < j; k++) if (s.items[k].status === 'pending') s.items[k].status = 'skipped';
     s.items.splice(idx, 1);          // target is now at j - 1
     s.items.splice(j, 0, act);       // pushed item lands right after it
     const target = s.items[j - 1];
-    target.status = 'active'; target.activeSince = now; relock(s, now);
+    target.status = 'active'; target.activeSince = now; target.ret = false; relock(s, now);
     return { state: s, error: null };
   }
 
@@ -290,14 +296,16 @@ const ENGINE = (function () {
     const k = s.items.findIndex(i => i.id === id);
     if (k < 0) return { state: s, error: 'no such item' };
     if (s.items[k].status !== 'pending') return { state: s, error: 'only items not yet started can be moved' };
-    const k2 = k + (dir < 0 ? -1 : 1);
+    const dstep = dir < 0 ? -1 : 1;
+    let k2 = k + dstep;
+    while (s.items[k2] && s.items[k2].checked && s.items[k2].status === 'done') k2 += dstep;   // checked-off items are stepped over
     if (k2 >= 0 && s.items[k2] && s.items[k2].status === 'active') {   // Up on the first waiting item = push forward
       if (dir >= 0 || now === undefined) return { state: s, error: 'cannot move there' };
       const r = pushForward(state, now);
       return (r.error || activeItem(r.state).id !== id) ? { state: s, error: r.error || 'cannot move there' } : r;
     }
     if (k2 < 0 || k2 >= s.items.length || s.items[k2].status !== 'pending') return { state: s, error: 'cannot move there' };
-    [s.items[k], s.items[k2]] = [s.items[k2], s.items[k]]; relock(s, now);
+    [s.items[k], s.items[k2]] = [s.items[k2], s.items[k]]; s.items[k].ret = false; s.items[k2].ret = false; relock(s, now);
     return { state: s, error: null };
   }
   // patch may hold name, dur; type/kind only for items not yet started. The active item keeps its time spent.
@@ -317,6 +325,61 @@ const ENGINE = (function () {
     return { state: s, error: null };
   }
 
+  /* ---------- check off (v1.5) ----------
+     Marks an item that has not finished as done without timing it: no history block, nothing spent, and it
+     stops counting toward an open-ended run's suggested end. The saved routine is not touched. The active
+     item is simply completed. Un-checking puts the item back in its original slot; if that slot is already
+     past (the item sits before the active one) it goes right after the active item instead, ahead of other
+     such items that came after it originally. Each returned item remembers the item that preceded it (ra) and
+     the order in which it was returned (rseq), which is enough to rebuild the original order later. */
+  function checkOff(state, id, now) {
+    const s = clone(state);
+    const it = byId(s, id);
+    if (!it) return { state: s, error: 'no such item' };
+    if (s.finished) return { state: s, error: 'run finished' };
+    if (it.type === 'buf') return { state: s, error: 'buffers cannot be checked off' };
+    if (it.status === 'active') return complete(state, now);
+    if (it.status !== 'pending') return { state: s, error: 'only items not yet finished can be checked off' };
+    it.status = 'done'; it.checked = true; it.spent = 0; it.ret = false;
+    relock(s, now);
+    return { state: s, error: null };
+  }
+  function uncheck(state, id, now) {
+    const s = clone(state);
+    const it = byId(s, id);
+    if (!it || !it.checked || it.status !== 'done') return { state: s, error: 'not checked off' };
+    if (s.finished) return { state: s, error: 'run finished' };
+    const a = s.items.findIndex(i => i.status === 'active');
+    const k = s.items.indexOf(it);
+    it.checked = false; it.status = 'pending'; it.spent = 0;
+    if (a < 0) {                                   // nothing is running (saved time): it becomes the next item
+      s.items.splice(k, 1); s.items.push(it);
+      if (s.free) { s.history.push({ free: true, name: 'Saved time', from: s.free.since, to: now }); s.free = null; activateNext(s, now); }
+      return { state: s, error: null };
+    }
+    if (k > a) { relock(s, now); return { state: s, error: null }; }   // slot still ahead: stays where it is
+    // Slot already past. L = the past in its original order, with earlier returned items put back where they came from.
+    const L = s.items.slice(0, a).map(i => i.id);
+    let waiting = s.items.filter(i => i.ret && i.status === 'pending').sort((p, q) => (p.rseq || 0) - (q.rseq || 0));
+    while (waiting.length) {
+      const left = [];
+      waiting.forEach(r => {
+        const ai = r.ra == null ? -1 : L.indexOf(r.ra);
+        if (r.ra == null || ai >= 0) L.splice(ai + 1, 0, r.id); else left.push(r);
+      });
+      if (left.length === waiting.length) { left.forEach(r => L.push(r.id)); break; }
+      waiting = left;
+    }
+    const xi = L.indexOf(id);
+    it.ra = xi > 0 ? L[xi - 1] : null; it.ret = true; s.rseq = (s.rseq || 0) + 1; it.rseq = s.rseq;
+    s.items.splice(k, 1);                          // the active item is now at a - 1, so a is the slot right after it
+    let pos = a;
+    while (pos < s.items.length && s.items[pos].ret && s.items[pos].status === 'pending' && L.indexOf(s.items[pos].id) < xi) pos++;
+    s.items.splice(pos, 0, it);
+    relock(s, now);
+    return { state: s, error: null };
+  }
+
   /* ---------- readable dump ---------- */
   const f1 = n => (Math.round(n * 10) / 10).toFixed(1);
   function describe(lay, s) {
@@ -331,301 +394,9 @@ const ENGINE = (function () {
     return lines.join('\n');
   }
 
-  return { createRun, layout, complete, finishRun, pushForward, addItem, deleteItem, moveItem, updateItem,
+  return { createRun, layout, complete, finishRun, pushForward, addItem, deleteItem, moveItem, updateItem, checkOff, uncheck,
            activeItem, describe, constants: { FLOOR_FRACTION, GROW_WEIGHT_MIN, BUFFER_MIN_SHOW } };
 })();
-</script>
-<script id="tests">
-function runAllTests() {
-  const E = ENGINE;
-  const results = [];
-  const f2 = n => (Math.round(n * 100) / 100).toString();
-
-  function scenario(title, desc, fn) {
-    const checks = [], notes = [];
-    const c = {
-      near(label, got, want, tol) { checks.push({ label, got: f2(got), want: f2(want), pass: Math.abs(got - want) <= (tol === undefined ? 0.01 : tol) }); },
-      eq(label, got, want) { checks.push({ label, got: String(got), want: String(want), pass: got === want }); },
-      ok(label, cond) { checks.push({ label, got: String(!!cond), want: 'true', pass: !!cond }); },
-      note(t) { notes.push(t); }
-    };
-    try { fn(c); } catch (e) { checks.push({ label: 'scenario threw an error', got: String(e && e.message || e), want: 'no error', pass: false }); }
-    results.push({ title, desc, checks, notes, pass: checks.every(x => x.pass) });
-  }
-
-  // 60 minutes planned: Cleanup 10 (min), Pack lunch 20 (est), task buffer 10, Make bed 15 (est), break buffer 5.
-  const routineR = () => [
-    { type: 'min', name: 'Cleanup', dur: 10 },
-    { type: 'est', name: 'Pack lunch', dur: 20 },
-    { type: 'buf', kind: 'task', name: 'Task buffer', dur: 10 },
-    { type: 'est', name: 'Make bed', dur: 15 },
-    { type: 'buf', kind: 'break', name: 'Break buffer', dur: 5 }
-  ];
-  const L = (lay, name) => lay.blocks.find(b => b.name === name);
-  const names = s => s.items.map(i => i.name + (i.status === 'pending' ? '' : ':' + i.status)).join(' | ');
-  const req = () => E.createRun({ items: routineR(), mode: 'required', start: 0, requiredEnd: 60 });
-  const open = () => E.createRun({ items: routineR(), mode: 'open', start: 0 });
-  const done = (s, t) => E.complete(s, t).state;
-
-  scenario('1. On time, required end',
-    'Everything finishes exactly as planned: items and buffers stay at their defaults and the end is 60.', c => {
-    let s = req(), lay = E.layout(s, 0);
-    c.eq('first item is active', E.activeItem(s).name, 'Cleanup');
-    c.near('projected end at start', lay.projectedEnd, 60);
-    s = done(s, 10); lay = E.layout(s, 10);
-    c.eq('Pack lunch is active', E.activeItem(s).name, 'Pack lunch');
-    c.near('Pack lunch length', L(lay, 'Pack lunch').len, 20);
-    c.near('task buffer', L(lay, 'Task buffer').len, 10);
-    c.near('break buffer', L(lay, 'Break buffer').len, 5);
-    c.near('projected end', lay.projectedEnd, 60);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('2. Early finish, required end, with buffers',
-    'Cleanup done 4 min early. The 4 spare minutes go to the buffers, weighted 10 : 5.', c => {
-    let s = done(req(), 6); const lay = E.layout(s, 6);
-    c.near('Pack lunch stays at 20', L(lay, 'Pack lunch').len, 20);
-    c.near('Make bed stays at 15', L(lay, 'Make bed').len, 15);
-    c.near('task buffer grows', L(lay, 'Task buffer').len, 10 + 4 * 10 / 15);
-    c.near('break buffer grows', L(lay, 'Break buffer').len, 5 + 4 * 5 / 15);
-    c.near('projected end', lay.projectedEnd, 60);
-    c.near('no saved tail', lay.freeTail, 0);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('3. Small overrun absorbed by buffers only',
-    'Cleanup done 4 min late. Buffers shrink in proportion to their defaults; items stay full length.', c => {
-    let s = done(req(), 14); const lay = E.layout(s, 14);
-    c.near('Pack lunch stays at 20', L(lay, 'Pack lunch').len, 20);
-    c.near('task buffer', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
-    c.near('break buffer', L(lay, 'Break buffer').len, 5 * (1 - 4 / 15));
-    c.near('projected end', lay.projectedEnd, 60);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('4. Bigger overrun: buffers vanish, items compress',
-    'Cleanup done 20 min late. Both buffers disappear and the two estimate items shrink, but stay above 80%.', c => {
-    let s = done(req(), 30); const lay = E.layout(s, 30);
-    c.ok('task buffer hidden', L(lay, 'Task buffer').hidden);
-    c.ok('break buffer hidden', L(lay, 'Break buffer').hidden);
-    c.near('Pack lunch', L(lay, 'Pack lunch').len, 20 - 4 * (5 / 7));
-    c.near('Make bed', L(lay, 'Make bed').len, 15 - 3 * (5 / 7));
-    c.ok('Pack lunch at least 80%', L(lay, 'Pack lunch').len >= 16 - 1e-9);
-    c.near('projected end', lay.projectedEnd, 60);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('5. Overrun too big even for the 80% floors',
-    'Cleanup done 30 min late. Items sit at their floors and the projected end runs past the required end.', c => {
-    let s = done(req(), 40); const lay = E.layout(s, 40);
-    c.near('Pack lunch at floor', L(lay, 'Pack lunch').len, 16);
-    c.near('Make bed at floor', L(lay, 'Make bed').len, 12);
-    c.near('over by', lay.overBy, 8);
-    c.near('projected end', lay.projectedEnd, 68);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('6. Late, then caught up (full reversal), required end',
-    'Cleanup 4 late, then Pack lunch 4 early. Buffers return exactly to their defaults.', c => {
-    let s = done(req(), 14);
-    let lay = E.layout(s, 14);
-    c.near('after the delay, task buffer is shrunk', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
-    s = done(s, 30); lay = E.layout(s, 30);
-    c.near('task buffer back to default', L(lay, 'Task buffer').len, 10);
-    c.near('break buffer back to default', L(lay, 'Break buffer').len, 5);
-    c.near('Make bed full length', L(lay, 'Make bed').len, 15);
-    c.near('projected end', lay.projectedEnd, 60);
-    c.note(E.describe(lay, s));
-  });
-
-  scenario('7. Open-ended: late, then catching up',
-    'Open end, suggested 60. Buffers shrink first; past that the end moves later; catching up brings the end back, then buffers regrow.', c => {
-    let s = open(), lay = E.layout(s, 0);
-    c.near('suggested end', lay.referenceEnd, 60);
-    let a = done(s, 14); lay = E.layout(a, 14);
-    c.near('4 late: end unchanged', lay.projectedEnd, 60);
-    c.near('4 late: task buffer shrinks', L(lay, 'Task buffer').len, 10 * (1 - 4 / 15));
-    a = done(s, 30); lay = E.layout(a, 30);
-    c.ok('20 late: buffers gone', L(lay, 'Task buffer').hidden && L(lay, 'Break buffer').hidden);
-    c.near('20 late: items not compressed', L(lay, 'Pack lunch').len, 20);
-    c.near('20 late: end moves later', lay.projectedEnd, 65);
-    c.near('20 late: over by', lay.overBy, 5);
-    // Pack lunch then finishes at 40 (10 min early): the end returns to 60 and buffers partly return.
-    let b = done(a, 40); lay = E.layout(b, 40);
-    c.near('then 10 early: end back to original', lay.projectedEnd, 60);
-    c.near('then 10 early: task buffer partly back', L(lay, 'Task buffer').len, 10 * (1 - 10 / 15));
-    // Ahead of schedule from the start: buffers grow, end stays 60.
-    const e = done(s, 5); lay = E.layout(e, 5);
-    c.near('5 early: task buffer grows', L(lay, 'Task buffer').len, 10 + 5 * 10 / 15);
-    c.near('5 early: end stays', lay.projectedEnd, 60);
-    c.note(E.describe(lay, e));
-  });
-
-  scenario('8. No buffers, ahead of schedule',
-    'Two items, 30 planned. Cleanup done 4 early: the end moves earlier and the saved time is shown at the end.', c => {
-    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
-    ['required', 'open'].forEach(mode => {
-      const s = E.createRun({ items, mode, start: 0, requiredEnd: 30 });
-      const t = done(s, 6), lay = E.layout(t, 6);
-      c.near(mode + ': projected end moves earlier', lay.projectedEnd, 26);
-      c.near(mode + ': saved tail', lay.freeTail, 4);
-      c.near(mode + ': reference end', lay.referenceEnd, 30);
-      if (mode === 'open') c.note(E.describe(lay, t));
-    });
-  });
-
-  scenario('9. Push forward',
-    'Skip the current item for this run only. Time spent stays on it and counts when it returns.', c => {
-    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }, { type: 'est', name: 'Make bed', dur: 15 }];
-    let s = E.createRun({ items, mode: 'open', start: 0 });
-    let r = E.pushForward(s, 4); s = r.state;
-    c.eq('no error', r.error, null);
-    c.eq('Pack lunch now active', E.activeItem(s).name, 'Pack lunch');
-    c.eq('order', names(s), 'Pack lunch:active | Cleanup | Make bed');
-    c.eq('partial block recorded', s.history.length === 1 && s.history[0].partial && s.history[0].from === 0 && s.history[0].to === 4, true);
-    let lay = E.layout(s, 4);
-    c.near('Cleanup returns at full length', L(lay, 'Cleanup').len, 10);
-    c.near('Cleanup starts after Pack lunch', L(lay, 'Cleanup').start, 24);
-    c.near('the 4 spent minutes are not credited: end 4 later', lay.projectedEnd, 49);
-    c.note(E.describe(lay, s));
-    // single item: nothing to push past
-    const one = E.createRun({ items: [{ type: 'min', name: 'Only', dur: 5 }], mode: 'open', start: 0 });
-    c.eq('nothing to push past', E.pushForward(one, 1).error, 'nothing to push past');
-  });
-
-  scenario('9b. Push forward passes over a hidden buffer',
-    'A buffer that has no room is not shown, so push forward swaps with the next visible item instead.', c => {
-    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'buf', kind: 'task', name: 'Task buffer', dur: 5 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
-    let s = E.createRun({ items, mode: 'required', start: 0, requiredEnd: 30 });
-    c.ok('buffer hidden at start', E.layout(s, 0).blocks.find(b => b.name === 'Task buffer').hidden);
-    const r = E.pushForward(s, 2); s = r.state;
-    c.eq('no error', r.error, null);
-    c.eq('Pack lunch active', E.activeItem(s).name, 'Pack lunch');
-    c.eq('order and statuses', names(s), 'Task buffer:skipped | Pack lunch:active | Cleanup');
-    c.note(E.describe(E.layout(s, 2), s));
-  });
-
-  scenario('10. Mid-run edits, required end',
-    'After Cleanup is done at 6 (Pack lunch active): add, delete, move, update. Required end stays 60.', c => {
-    let s = done(req(), 6);
-    let r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 });
-    let lay = E.layout(r.state, 6);
-    c.near('add 5 min item: task buffer shrinks', L(lay, 'Task buffer').len, 10 * 14 / 15);
-    c.near('add 5 min item: break buffer shrinks', L(lay, 'Break buffer').len, 5 * 14 / 15);
-    c.near('add 5 min item: end stays 60', lay.projectedEnd, 60);
-
-    r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 }, 0);
-    c.eq('add at index 0 lands after the active item', names(r.state), 'Cleanup:done | Pack lunch:active | Trash | Task buffer | Make bed | Break buffer');
-
-    const bed = s.items.find(i => i.name === 'Make bed');
-    r = E.deleteItem(s, bed.id); lay = E.layout(r.state, 6);
-    c.near('delete Make bed: task buffer grows', L(lay, 'Task buffer').len, 10 + 19 * 10 / 15);
-    c.near('delete Make bed: break buffer grows', L(lay, 'Break buffer').len, 5 + 19 * 5 / 15);
-
-    c.ok('cannot delete a finished item', E.deleteItem(s, s.items[0].id).error !== null);
-    c.ok('cannot delete the active item', E.deleteItem(s, E.activeItem(s).id).error !== null);
-
-    r = E.moveItem(s, bed.id, -1);
-    c.eq('move Make bed up past the task buffer', names(r.state), 'Cleanup:done | Pack lunch:active | Make bed | Task buffer | Break buffer');
-    const pu = E.moveItem(r.state, bed.id, -1, 6);
-    c.eq('Up on the first waiting item acts as push forward', pu.error === null && E.activeItem(pu.state).name === 'Make bed', true);
-    c.ok('cannot move the active item', E.moveItem(s, E.activeItem(s).id, 1).error !== null);
-
-    r = E.updateItem(s, E.activeItem(s).id, { dur: 25 }, 6); lay = E.layout(r.state, 6);
-    c.near('lengthen the active item by 5: Pack lunch remaining', L(lay, 'Pack lunch').len, 25);
-    c.near('lengthen the active item by 5: task buffer shrinks', L(lay, 'Task buffer').len, 10 * 14 / 15);
-    c.near('lengthen the active item by 5: end stays 60', lay.projectedEnd, 60);
-  });
-
-  scenario('10b. Mid-run edits, open end',
-    'Adding an item moves the suggested end later; deleting moves it earlier.', c => {
-    let s = done(open(), 6);
-    let r = E.addItem(s, { type: 'est', name: 'Trash', dur: 5 });
-    let lay = E.layout(r.state, 6);
-    c.near('suggested end moves to 65', lay.referenceEnd, 65);
-    c.near('projected end', lay.projectedEnd, 65);
-    c.near('task buffer: 4 early minutes still in the buffers', L(lay, 'Task buffer').len, 10 + 4 * 10 / 15);
-    const bed = s.items.find(i => i.name === 'Make bed');
-    r = E.deleteItem(s, bed.id); lay = E.layout(r.state, 6);
-    c.near('delete 15 min item: suggested end moves to 45', lay.referenceEnd, 45);
-    c.near('projected end', lay.projectedEnd, 45);
-  });
-
-  scenario('11. Tight run to the finish',
-    'Cleanup done at 30 (20 late), then each item at its compressed length. Skipped buffers stay skipped; run ends at 60.', c => {
-    let s = done(req(), 30);
-    let lay = E.layout(s, 30);
-    const t1 = 30 + L(lay, 'Pack lunch').len;
-    s = done(s, t1); lay = E.layout(s, t1);
-    c.eq('Make bed active (buffer passed over)', E.activeItem(s).name, 'Make bed');
-    c.near('Make bed length', L(lay, 'Make bed').len, 90 / 7);
-    const t2 = t1 + L(lay, 'Make bed').len;
-    s = done(s, t2);
-    c.eq('run finished', s.finished, true);
-    c.near('finished at 60', t2, 60, 0.05);
-    c.eq('statuses', names(s), 'Cleanup:done | Pack lunch:done | Task buffer:skipped | Make bed:done | Break buffer:skipped');
-  });
-
-  scenario('12. Sweep: Cleanup done at every minute 0 to 60',
-    'Invariants for the required end: lengths never negative, end holds unless over, buffer total only falls as time is lost.', c => {
-    let bad = [], prevBuf = Infinity, monotone = true, tailWithBuf = false;
-    for (let t = 0; t <= 60; t++) {
-      const s = done(req(), t); const lay = E.layout(s, t);
-      if (s.finished) continue;
-      if (lay.blocks.some(b => b.len < -1e-9)) bad.push('negative length at ' + t);
-      if (lay.overBy < 1e-6 && lay.freeTail < 1e-6 && Math.abs(lay.projectedEnd - 60) > 1e-6) bad.push('end drifted at ' + t);
-      if (lay.overBy > 1e-6 && lay.projectedEnd < 60) bad.push('over flag wrong at ' + t);
-      const bufTotal = lay.blocks.filter(b => b.type === 'buf').reduce((a, b) => a + b.len, 0);
-      if (bufTotal > prevBuf + 1e-6) monotone = false;
-      prevBuf = bufTotal;
-      if (lay.freeTail > 1e-6 && lay.blocks.some(b => b.type === 'buf' && !b.hidden)) tailWithBuf = true;
-    }
-    c.eq('no invariant violations', bad.join('; ') || 'none', 'none');
-    c.ok('buffer total never grows as completion time gets later', monotone);
-    c.ok('saved tail only appears when no buffer is showing', !tailWithBuf);
-  });
-
-  scenario('13. Pushed items, minimum chime, saved time',
-    'Pushed items return at full length; minimum chime uses total time; leftover time keeps running as saved time.', c => {
-    const items = [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'est', name: 'Pack lunch', dur: 20 }];
-    let s = E.createRun({ items, mode: 'open', start: 0 });
-    s = E.pushForward(s, 12).state;
-    c.near('returns at full length although 12 > 10 min were spent', L(E.layout(s, 12), 'Cleanup').len, 10);
-    s = done(s, 32);
-    c.eq('Cleanup active again', E.activeItem(s).name, 'Cleanup');
-    c.eq('no minimum chime: minimum already reached', L(E.layout(s, 32), 'Cleanup').minChimeAt, null);
-    let t = E.pushForward(E.createRun({ items, mode: 'open', start: 0 }), 4).state; t = done(t, 24);
-    const lt = E.layout(t, 24);
-    c.near('chime when TOTAL reaches the minimum', L(lt, 'Cleanup').minChimeAt, 30);
-    c.near('block still ends after a full 10 min', L(lt, 'Cleanup').end, 34);
-    const one = () => E.createRun({ items: [{ type: 'est', name: 'A', dur: 10 }], mode: 'required', start: 0, requiredEnd: 20 });
-    const u = done(one(), 6);
-    c.eq('keeps running in saved time', u.finished === false && u.free !== null, true);
-    c.near('saved block runs to the end time', E.layout(u, 8).freeBlock.end, 20);
-    c.eq('adding an item starts it', E.activeItem(E.addItem(u, { type: 'est', name: 'B', dur: 5 }, undefined, 8).state).name, 'B');
-    c.eq('finish from saved time', E.finishRun(u, 10).state.finished, true);
-    c.eq('completing at the end time finishes the run', done(one(), 20).finished, true);
-  });
-
-  scenario('14. Locked block ends: the clock alone never reshuffles',
-    'Active buffer keeps its end while the clock runs; only events (or overrunning the whole block) change plans.', c => {
-    const mk = end => E.createRun({ items: [{ type: 'min', name: 'Cleanup', dur: 10 }, { type: 'buf', kind: 'task', name: 'Buf', dur: 10 }, { type: 'est', name: 'Pack', dur: 20 }], mode: 'required', start: 0, requiredEnd: end });
-    let s = done(mk(60), 6);
-    [6, 12, 25, 39].forEach(t => { const lay = E.layout(s, t); c.near('growing buffer end at ' + t, L(lay, 'Buf').end, 40); c.near('Pack start at ' + t, L(lay, 'Pack').start, 40); });
-    s = done(mk(35), 10);
-    [10, 12, 15].forEach(t => c.near('shrunk buffer end at ' + t, L(E.layout(s, t), 'Buf').end, 15));
-    c.near('Pack unchanged by the clock', L(E.layout(s, 14), 'Pack').len, 20);
-    const lay = E.layout(s, 20);
-    c.near('overrun: buffer length 0', L(lay, 'Buf').len, 0);
-    c.near('overrun: Pack at floor', L(lay, 'Pack').len, 16);
-    c.near('overrun: over by', lay.overBy, 1);
-    const s2 = done(mk(60), 10), id = s2.items[2].id;
-    c.near('delete Pack at 20: buffer re-locked to 60', L(E.layout(E.deleteItem(s2, id, 20).state, 20), 'Buf').end, 60);
-    c.near('Pack to 30 min at 20: buffer re-locked to 30', L(E.layout(E.updateItem(s2, id, { dur: 30 }, 20).state, 20), 'Buf').end, 30);
-  });
-
-  return results;
-}
 </script>
 <script id="ui">
 const E = ENGINE, $ = id => document.getElementById(id);
@@ -633,7 +404,16 @@ const CLOCK_24H = false;
 const fm = n => String(Math.round(n));
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 const clone = o => JSON.parse(JSON.stringify(o));
+/* ---------- versions and multi-tab safety ----------
+   APP_VERSION is shown to the person. SCHEMA is the saved-data format: only bump it for a change an older
+   copy cannot safely read or write (renamed or removed fields). Adding optional fields keeps the same SCHEMA.
+   Saving is switched off (LOCK) in a tab when the saved data was written by another tab or by a newer
+   SCHEMA, so a stale tab never overwrites newer data. */
+const APP_VERSION = '1.5.1', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
+let LOCK = null, lastSaved = '', ALIVE_NOTE = false, CONVERTED_NOTE = '';
 const pad = n => String(n).padStart(2, '0');
+const fmTotal = m => { const r = Math.round(m); return r < 60 ? r + ' min' : Math.floor(r / 60) + ' h ' + (r % 60) + ' min'; };
+const itemsTotal = items => items.reduce((a, i) => a + (+i.dur || 0), 0);
 let MUTED = false, actx = null, T0 = 0, DETAIL = null, ROUTINES = defaultRoutines(), RID = 'sprint', RDEL = null, runGain = null, armedSig = '', wake = null, lastWake = 0, impPending = false, lastEdit = 'len';
 function defaultRoutines() { return [
   { id: 'sprint', name: 'Sprint', mode: 'required', items: [{ type: 'buf', kind: 'task', name: 'Task time', dur: 0 }] },
@@ -641,6 +421,8 @@ function defaultRoutines() { return [
     { type: 'est', name: 'Brush teeth', dur: 5 }, { type: 'est', name: 'Make bed', dur: 5 }, { type: 'min', name: 'House cleanup', dur: 15 },
     { type: 'est', name: 'Pack lunch', dur: 15 }, { type: 'buf', kind: 'task', name: 'Habits and tasks', dur: 10 }, { type: 'min', name: 'Flashcards', dur: 15 },
     { type: 'buf', kind: 'break', name: 'Break', dur: 5 }, { type: 'est', name: 'Shoes and keys', dur: 5 }] }]; }
+const newUid = () => 'u' + Math.random().toString(36).slice(2, 9);
+function ensureUids() { ROUTINES.forEach(r => r.items.forEach(i => { if (!i.uid) i.uid = newUid(); })); }
 function syncNow() { if (!state) return; if (state.finished && state.history.length) now = state.history[state.history.length - 1].to; else now = (Date.now() - T0) / 60000; }
 let BP = null, SKIP = new Set(), RUNMOM = 0, HE = null, HD = null, HDEL = null;
 let state = null, now = 0, base = 0, undo = [], tab = 'run', open = null, segs = [], log = [], resetPending = false, mode = 'required';
@@ -694,6 +476,7 @@ $('startBtn').onclick = () => {
   if (mode === 'open' && total(r) <= 0) return err('Open-ended needs items with time.');
   err(''); base = nm; T0 = Date.now(); now = 0; undo = []; log = []; open = null; tab = 'run'; BP = null; SKIP = new Set(); RUNMOM = 0; DETAIL = null;
   state = E.createRun({ items: clone(r.items), mode, start: 0, requiredEnd: len });
+  state.rid = r.id; state.adj = {}; state.adjBase = {}; state.hdone = [];
   try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch (e) {}
   render();
 };
@@ -725,7 +508,7 @@ function itemAct(kind, id) {
   if (kind === 'up') apply(() => E.moveItem(state, id, -1, now)); else if (kind === 'down') apply(() => E.moveItem(state, id, 1, now));
   else if (kind === 'del') { open = null; apply(() => E.deleteItem(state, id, now)); }
 }
-const go = t => { tab = t; DETAIL = null; render(); };
+const go = t => { tab = t; DETAIL = null; RMSG = ''; RFB = ''; render(); };
 function pick(i) { const s = segs[i]; if (!s) return; let x;
   if (s.free) x = `Saved time ${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`;
   else { const it = s.it; x = `${s.sub || it.name}. ` + (s.past ? `${s.partial ? 'Pushed forward after' : 'Done after'} ${fm(s.to - s.from)} min, ${clock(s.from)} to ${clock(s.to)}.` : s.now ? `Running since ${clock(s.from)}, ${fm(s.elapsed)} min so far.` : `${clock(s.from)} to ${clock(s.to)}, ${fm(s.to - s.from)} min.`);
@@ -739,14 +522,14 @@ function resetRun() { if (!resetPending) { resetPending = true; render(); setTim
 function runView(lay) {
   const act = E.activeItem(state), b = lay.blocks.find(x => x.status === 'active'), ref = lay.referenceEnd;
   let cur;
-  if (state.finished) { const last = state.history[state.history.length - 1]; cur = `<div class="card cur"><h2>Routine complete</h2><div class="name">Finished at ${clock(last ? last.to : now)}</div><div class="mut">Planned end ${clock(ref)}.</div></div>`; }
+  if (state.finished) { const last = state.history[state.history.length - 1]; const fin = last ? last.to : now;
+    cur = `<div class="card cur"><h2>Routine complete</h2><div class="name">Finished at ${clock(fin)}</div><div class="mut">Started ${clock(state.start)}</div><div class="mut">Took ${fmTotal(fin - state.start)}</div><div class="mut">${state.mode === 'required' ? 'Required' : 'Estimated'} end ${clock(ref)}</div></div>` + adjCard(); }
   else if (state.free) { const left = Math.max(0, ref - now);
     cur = `<div class="card cur"><span class="chip" style="background:var(--brk)">Saved time</span><div class="name">Nothing scheduled</div><div class="big">${left > 0 ? mmss(left) : 'End time reached'}</div><div class="mut">${left > 0 ? 'left until the end time. Add an item on the Edit tab, or finish.' : 'The routine can be finished now.'}</div><button class="pri" style="min-height:56px;width:100%" onclick="apply(()=>E.finishRun(state,now))">Finish routine</button></div>`; }
   else if (act.type === 'buf' && act.kind === 'task') { cur = taskBufferCard(act, b); }
-  else { const isOver = b.len <= 0, inMin = b.minChimeAt !== null;
-    cur = `<div class="card cur">${chip(act)}<div class="name">${esc(act.name)}</div><div class="big">${isOver ? mmss(now - act.activeSince) : mmss(b.len)}</div><div class="mut">${isOver ? 'spent, was due at ' + clock(act.lockedEnd) : 'left in this block, ends ' + clock(b.end)}</div>`
+  else { const isOver = b.len <= 0;
+    cur = `<div class="card cur">${chip(act)}<div class="name">${esc(act.name)}</div><div class="big">${isOver ? mmss(now - act.activeSince) : mmss(b.len)}</div><div class="mut">${isOver ? 'spent, was due at ' + clock(act.lockedEnd) : mmss(b.len) + ' left of ' + fm(b.end - act.activeSince) + ' min, ends ' + clock(b.end)}</div>`
       + (act.spent > 0 ? `<div class="mut">${fm(act.spent)} min already spent on it earlier (not credited to this block)</div>` : '')
-      + (act.type === 'min' ? `<div class="mut">${inMin ? 'Single chime in ' + mmss(b.minChimeAt - now) + ' when total time reaches ' + fm(act.dur) + ' min' : 'Minimum of ' + fm(act.dur) + ' min already reached'}</div>` : '')
       + `<button class="pri" style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.complete(state,now))">Done</button><button style="min-height:56px;width:calc(50% - 4px)" onclick="apply(()=>E.pushForward(state,now))">Push forward</button></div>`; }
   segs = [];
   state.history.forEach(h => segs.push(h.free ? { from: h.from, to: h.to, free: true, past: true } : { from: h.from, to: h.to, it: itemById(h.id), past: true, partial: h.partial }));
@@ -761,9 +544,9 @@ function runView(lay) {
   let due = null;
   if (!state.finished && !state.free && act) { const tb = act.type === 'buf' && act.kind === 'task' && BP && BP.bufId === act.id; const de = tb && BP.cur ? BP.cur.start + BP.cur.duration : act.lockedEnd; if (de != null && now > de + 0.02) due = de; }
   const endAll = Math.max(ref, now, ...segs.map(s => s.to)), span = Math.max(1, endAll), pc = m => m / span * 100;
-  const bar = segs.map((s, i) => { const w = Math.max(0.3, (s.to - s.from) / span * 100);
+  const bar = segs.map((s, i) => {
     const fill = s.now ? `<div class="fill" style="width:${Math.min(100, s.to > s.from ? s.elapsed / (s.to - s.from) * 100 : 100)}%"></div>` : '';
-    return `<div class="s${s.past ? ' past' : ''}${s.now && !s.free ? ' now' : ''}${s.partial ? ' partial' : ''}${s.grey ? ' grey' : ''}${s.rem ? ' rem' : ''}" style="width:${w}%;background:${s.free ? 'var(--brk)' : colorFor(s.it)}" onclick="pick(${i})">${fill}</div>`; }).join('');
+    return `<div class="s${s.past ? ' past' : ''}${s.now && !s.free ? ' now' : ''}${s.partial ? ' partial' : ''}${s.grey ? ' grey' : ''}${s.rem ? ' rem' : ''}" style="left:${s.from / span * 100}%;width:${(s.to - s.from) / span * 100}%;background:${s.free ? 'var(--brk)' : colorFor(s.it)}" onclick="pick(${i})">${fill}</div>`; }).join('');
   const pe = state.finished ? ref : lay.projectedEnd, moved = Math.abs(pe - ref) > 0.5, late = pe - ref > 0.5, early = ref - pe > 0.5 && !state.free;
   const endHtml = (moved && !state.finished && !state.free) ? `<div class="endbig ${late ? 'late' : 'early'}">${clock(pe)}</div><div class="mut">was ${clock(ref)}</div>` : `<div class="endbig">${clock(ref)}</div><div class="mut">${state.mode === 'required' ? 'required' : 'estimated'}</div>`;
   return (MUTED || (actx && actx.state === 'running') ? '' : '<div class="mut">Tap anywhere to enable sound.</div>') + cur + `<div class="card"><div class="ends"><div><div class="mut">${state.finished ? 'Finished' : 'Now'}</div><div class="nowbig">${clock(now)}</div></div><div style="text-align:right">${endHtml}</div></div>`
@@ -773,7 +556,7 @@ function runView(lay) {
     + `<div class="detail" id="detail"></div><div class="legend"><span><span class="chip" style="background:var(--est)">&nbsp;</span> Estimate</span><span><span class="chip" style="background:var(--min)">&nbsp;</span> Minimum</span><span><span class="chip" style="background:var(--task)">&nbsp;</span> Task buffer</span><span><span class="chip" style="background:var(--brk)">&nbsp;</span> Break buffer or saved time</span></div>`
     + `</div>`
     
-    + `<button onclick="resetRun()">${resetPending ? 'Confirm: discard this run?' : 'Back to setup'}</button>`;
+    + `<button onclick="resetRun()">${resetPending ? 'Confirm: finished with this run?' : 'Back to setup'}</button>`;
 }
 /* ---------- tasks and habits (mockup data; scoring ported from routine18_4) ---------- */
 let DAY = 1, PLANS = {}, taskSeq = 0, habitSeq = 0;
@@ -806,16 +589,16 @@ function taskPool() {
 }
 // Tasks skipped this run (low) are only picked when nothing else is left, like the runner.
 function simTasks(pool, mom, budget) {
-  const mom0 = mom; let p = pool.slice(), rem = budget; const out = [];
-  while (rem > 1e-9 && p.length) {
-    const w = p.some(t => !t.low) ? p.filter(t => !t.low) : p;
+  let p = pool.slice(), rem = budget; const out = [];
+  while (p.length) {
+    const fit = p.filter(t => t.duration <= rem + 1e-9);   // v1.5.1: only tasks that fit in the time still left
+    if (!fit.length) break;
+    const w = fit.some(t => !t.low) ? fit.filter(t => !t.low) : fit;
     const qw = w.filter(t => t.duration <= 5).sort((a, b) => b.score - a.score);
     const c = (qw.length && mom < 3) ? qw[0] : w.slice().sort((a, b) => b.score - a.score)[0];
     out.push(c); p = p.filter(t => t !== c); rem -= c.duration; mom = c.duration <= 5 ? mom + 1 : 0;
   }
-  let left = budget; const kept = out.filter(t => t.duration <= left + 1e-9 ? (left -= t.duration, true) : false);
-  let m = mom0; kept.forEach(t => { m = t.duration <= 5 ? m + 1 : 0; });
-  return { kept, mom: m };
+  return { kept: out, mom };
 }
 const strip = c => ({ kind: c.kind, id: c.ref.id, key: c.key, name: c.name, duration: c.duration });
 const lookup = c => c.kind === 'task' ? TASKS.find(t => t.id === c.id) : HABITS.find(h => h.id === c.id);
@@ -875,7 +658,7 @@ function subSegs(it) {
   if (le - t > 0.05) out.push({ from: t, to: le, it, sub: 'Buffer remainder', rem: true });
   return out;
 }
-function bufDone() { const c = BP && BP.cur; if (!c) { apply(() => E.complete(state, now)); return; } snap(); completeTask(c); replanBP(); render(); }
+function bufDone() { const c = BP && BP.cur; if (!c) { apply(() => E.complete(state, now)); return; } snap(); if (c.kind === 'habit') (state.hdone = state.hdone || []).push({ id: c.id, min: Math.max(0, now - c.start) }); completeTask(c); replanBP(); render(); }
 function bufPush() { const c = BP && BP.cur; if (!c) return; snap(); SKIP.add(c.key); BP.done.push({ name: c.name, key: c.key, from: c.start, to: now, partial: true }); BP.cur = null; replanBP(); render(); }
 // Push forward for a buffer with nothing left that fits: only if the buffer can move back a place
 // and some task could still fit before the required end (open-ended runs have no such limit).
@@ -896,6 +679,42 @@ function taskBufferCard(act) {
     + (c ? '' : '<div class="mut">' + (canPush ? 'Push forward moves this buffer back one place, or tap Done to move on.' : 'Tap Done to move on.') + '</div>')
     + `<button class="pri" style="min-height:56px;width:calc(50% - 4px);margin-top:8px" onclick="bufDone()">Done</button><button style="min-height:56px;width:calc(50% - 4px)" ${canPush ? '' : 'disabled'} onclick="${c ? 'bufPush()' : 'apply(()=>E.pushForward(state,now))'}">Push forward</button>`
     + (c ? `<button style="width:100%" onclick="apply(()=>E.complete(state,now))">End buffer early</button>` : '') + `</div>`;
+}
+
+/* ---------- after-run length adjustments (v1.3) ----------
+   Estimate items done in this run, and habits finished with Done in a task buffer, offer Keep / Update / Split.
+   Actual = total time on the item across all its blocks (pushed-forward time counts). Under 30 s is ignored.
+   Choices write straight into the saved routine item or habit. state.adjBase remembers each length from before. */
+const tookTxt = a => { const t = Math.round(a * 60); return Math.floor(t / 60) + ' min ' + pad(t % 60) + ' s'; };
+function adjRows() {
+  const rows = [], r = ROUTINES.find(x => x.id === state.rid);
+  if (r) state.items.forEach(it => {
+    if (it.type !== 'est' || it.status !== 'done' || !it.src || it.spent < 0.5) return;
+    const ri = r.items.find(x => x.uid === it.src); if (!ri || ri.type !== 'est') return;
+    rows.push({ key: 'i:' + it.src, name: ri.name, cur: ri.dur, a: it.spent, squeezed: !!it.squeezed, n: 1 });
+  });
+  const by = {};
+  (state.hdone || []).forEach(e => { if (e.min >= 0.5) (by[e.id] = by[e.id] || []).push(e.min); });
+  Object.keys(by).forEach(id => { const h = HABITS.find(x => String(x.id) === id); if (!h) return;
+    rows.push({ key: 'h:' + id, name: h.name, cur: h.dur, a: by[id].reduce((t, v) => t + v, 0) / by[id].length, n: by[id].length }); });
+  state.adjBase = state.adjBase || {};
+  rows.forEach(w => { if (state.adjBase[w.key] === undefined) state.adjBase[w.key] = w.cur; w.o = state.adjBase[w.key];
+    w.upd = Math.max(1, Math.round(w.a)); w.spl = Math.max(1, Math.round((w.o + w.a) / 2)); });
+  return rows;
+}
+function adjCard() {
+  const rows = adjRows(); if (!rows.length) return '';
+  const sel = state.adj || {};
+  return `<div class="card"><h2>Update lengths?</h2><div class="mut">A choice goes into the saved routine or habit as soon as you tap it.</div>` + rows.map(w => {
+    const c = sel[w.key] || 'keep', b = (k, l, v) => `<button class="tg${c === k ? ' on' : ''}" onclick="adjPick('${w.key}','${k}')">${l} ${v} min</button>`;
+    return `<div style="padding:8px 0;border-top:1px solid var(--line)"><div>${esc(w.name)}</div><div class="mut">${w.n > 1 ? 'average of ' + w.n + ': ' : 'took '}${tookTxt(w.a)}${w.squeezed ? ' (compressed run)' : ''}</div>${b('keep', 'Keep', w.o)}${b('update', 'Update', w.upd)}${b('split', 'Split', w.spl)}</div>`; }).join('') + `</div>`;
+}
+function adjPick(key, k) {
+  const w = adjRows().find(x => x.key === key); if (!w) return;
+  const v = k === 'keep' ? w.o : k === 'update' ? w.upd : w.spl;
+  if (key[0] === 'i') { const r = ROUTINES.find(x => x.id === state.rid), ri = r && r.items.find(x => 'i:' + x.uid === key); if (ri) ri.dur = v; }
+  else { const h = HABITS.find(x => 'h:' + x.id === key); if (h) h.dur = v; }
+  (state.adj = state.adj || {})[key] = k; render();
 }
 
 /* ---------- tasks tab actions ---------- */
@@ -989,6 +808,7 @@ function addNew(at) {
   const it = state && itemById('i' + state.nextId);
   if (it && (it.status === 'pending' || it.status === 'active')) focusField('rn_' + it.id);
 }
+function itemTick(id, v) { if (v) apply(() => E.checkOff(state, id, now)); else apply(() => E.uncheck(state, id, now)); }
 function runEnter(id, v) {
   apply(() => E.updateItem(state, id, { name: v.trim() || 'Item' }, now));
   addNew(state.items.findIndex(i => i.id === id) + 1);
@@ -997,39 +817,42 @@ function editView(lay) {
   const rows = state.items.map(it => {
     const b = lay.blocks.find(x => x.id === it.id), pend = it.status === 'pending', live = pend || it.status === 'active';
     let tm; const h = [...state.history].reverse().find(x => x.id === it.id && !x.partial);
-    if (it.status === 'done') tm = h ? `${clock(h.from)}-${clock(h.to)} · ${fm(h.to - h.from)} min` : 'done';
+    if (it.checked) tm = 'checked off';
+    else if (it.status === 'done') tm = h ? `${clock(h.from)}-${clock(h.to)} · ${fm(h.to - h.from)} min` : 'done';
     else if (it.status === 'skipped') tm = 'skipped'; else if (b && b.hidden) tm = 'no room right now';
     else tm = it.status === 'active' ? `now, to ${clock(b.end)} · ${fm(b.len)} min left` : `${clock(b.start)}-${clock(b.end)} · ${fm(b.len)} min`;
     const pl = PLANS[it.id]; if (pl && pl.length) tm += ' · ' + pl.map(t => t.name).join(', ');
     const arrows = pend ? `<div class="arrows"><button aria-label="Move up" onclick="itemAct('up','${it.id}')">&#9650;</button><button aria-label="Move down" onclick="itemAct('down','${it.id}')">&#9660;</button></div>` : '<span style="width:34px;flex:none"></span>';
     const nameEl = live ? `<input class="rn" id="rn_${it.id}" value="${esc(it.name)}" onchange="runSet('${it.id}','name',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();runEnter('${it.id}',this.value)}">`
-      : `<div style="flex:1;min-width:0;min-height:40px;display:flex;align-items:center">${esc(it.name)}</div>`;
+      : `<div style="flex:1;min-width:0;min-height:40px;display:flex;align-items:center${it.checked ? ';text-decoration:line-through' : ''}">${esc(it.name)}</div>`;
+    const tick = (it.type !== 'buf' && (live || it.checked)) ? `<input type="checkbox" class="ck" aria-label="Check off" ${it.checked ? 'checked' : ''} onchange="itemTick('${it.id}', this.checked)">` : '<span class="ck"></span>';
     const typeEl = pend ? typeCtl(it, `runSet('${it.id}','type',this.value)`, DELI === it.id, `runSet('${it.id}','type','del')`)
       : `<span class="tsel" style="background:${colorFor(it)};opacity:${live ? 1 : .45}" title="${typeLabel(it)}"></span>`;
     const durEl = live ? `<input class="rd" type="number" min="0" step="1" value="${fm(it.dur)}" onchange="runSet('${it.id}','dur',this.value)"><span class="u">min</span>`
       : `<span class="u" style="width:78px;text-align:right">${fm(it.dur)} min</span>`;
-    return `<div class="rwrap"><div class="row rrow${live ? '' : ' dim'}">${arrows}${nameEl}${typeEl}${durEl}</div><div class="tm" style="font-size:.75rem;padding:0 0 4px 39px">${tm}</div></div>`;
+    return `<div class="rwrap"><div class="row rrow${live ? '' : ' dim'}">${tick}${arrows}${nameEl}${typeEl}${durEl}</div><div class="tm" style="font-size:.75rem;padding:0 0 4px 72px">${tm}</div></div>`;
   }).join('');
   const pe = lay.projectedEnd, ref = lay.referenceEnd, differs = !state.finished && !state.free && Math.abs(pe - ref) > 0.5;
-  return `<div class="card"><h2>Items</h2>${rows}<button onclick="addNew()" style="margin-top:8px"${state.finished ? ' disabled' : ''}>+ Add item</button></div>`
+  return `<div class="card"><h2>Items</h2>${rows}<button onclick="addNew()" style="margin-top:8px"${state.finished ? ' disabled' : ''}>+ Add item</button><div class="mut" style="margin-top:6px">Total length of items: ${fmTotal(itemsTotal(state.items.filter(i => !i.checked)))}</div></div>`
     + `<div class="card"><h2>${state.mode === 'required' ? 'Required' : 'Suggested'} end ${clock(ref)}</h2>${differs ? `<div style="font-size:1.05rem">Expected end ${clock(pe)}</div>` : ''}</div>` + muteCard();
 }
 
 function muteCard() {
   const ic = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9v6h4l5 4V5L7 9H3z" fill="currentColor"/>${MUTED ? '<path d="M16 9l5 6M21 9l-5 6"/>' : '<path d="M15.5 8.5a5 5 0 0 1 0 7M18 6a8.5 8.5 0 0 1 0 12"/>'}</svg>`;
-  return `<div class="card"><button onclick="toggleMute()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px">${ic}${MUTED ? 'Sound muted (tap to unmute)' : 'Sound on (tap to mute)'}</button></div>`;
+  return `<div class="card"><button onclick="toggleMute()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px">${ic}${MUTED ? 'Sound muted (tap to unmute)' : 'Sound on (tap to mute)'}</button><button onclick="go('info')" style="width:100%;min-height:40px;margin-top:6px;font-size:.9rem">How to use and about</button></div>`;
 }
 function routineEditor() {
   const r = rt(), tv = it => it.type === 'buf' ? 'buf:' + (it.kind || 'task') : it.type, T = [['est', 'Estimate'], ['min', 'Minimum'], ['buf:task', 'Task buffer'], ['buf:break', 'Break buffer']];
   const rows = r.items.map((it, i) => `<div class="row rrow"><div class="arrows"><button aria-label="Move up" onclick="rMove(${i},-1)">&#9650;</button><button aria-label="Move down" onclick="rMove(${i},1)">&#9660;</button></div>`
     + `<input class="rn" value="${esc(it.name)}" onchange="rSet(${i},'name',this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();rSet(${i},'name',this.value);rAdd(${i}+1)}">`
     + typeCtl(it, `rSet(${i},'type',this.value)`, RDELI === i, `rSet(${i},'type','del')`)
-    + `<input class="rd" type="number" min="0" step="1" value="${fm(it.dur)}" onchange="rSet(${i},'dur',this.value)"><span class="u">min</span></div>`).join('');
+    + `<input class="rd" type="number" min="0" step="1" value="${fm(it.dur)}" oninput="rSet(${i},'dur',this.value)" onchange="rSet(${i},'dur',this.value)"><span class="u">min</span></div>`).join('');
   return `<div class="card"><h2>Edit routine</h2><label>Routine <select onchange="RID=this.value;RDEL=null;render()">${ROUTINES.map(x => `<option value="${esc(x.id)}"${x.id === r.id ? ' selected' : ''}>${esc(x.name)}</option>`).join('')}</select></label><br>`
     + `<label>Name <input value="${esc(r.name)}" onchange="rRename(this.value)"></label><br><label>Default end <select onchange="rMode(this.value)"><option value="required"${r.mode !== 'open' ? ' selected' : ''}>Required end time</option><option value="open"${r.mode === 'open' ? ' selected' : ''}>Open-ended</option></select></label>`
-    + rows + `<button onclick="rAdd()" style="margin-top:8px">+ Add item</button><div style="margin-top:8px"><button onclick="rNew()">New routine</button><button onclick="rRemove()"${r.id === 'sprint' ? ' disabled' : ''}>${RDEL === r.id ? 'Confirm delete?' : 'Delete routine'}</button></div></div>` + muteCard();
+    + rows + `<button onclick="rAdd()" style="margin-top:8px">+ Add item</button><div class="mut" id="rTotal" style="margin-top:6px">Total length of routine: ${fmTotal(itemsTotal(r.items))}</div><div style="margin-top:8px"><button onclick="rNew()">New routine</button><button onclick="rDup()">Copy routine</button><button onclick="rExport()">Export routine</button><button onclick="rRemove()"${r.id === 'sprint' ? ' disabled' : ''}>${RDEL === r.id ? 'Confirm delete?' : 'Delete routine'}</button></div>${rMsgHTML()}</div>` + muteCard();
 }
-function rSet(i, f, v) { const it = rt().items[i]; if (!it) return; if (f === 'name') it.name = v.trim() || 'Item'; else if (f === 'dur') it.dur = Math.max(0, Math.round(parseFloat(v)) || 0);
+function rTotalUpdate() { const el = $('rTotal'); if (el) el.textContent = 'Total length of routine: ' + fmTotal(itemsTotal(rt().items)); }
+function rSet(i, f, v) { const it = rt().items[i]; if (!it) return; if (f === 'name') it.name = v.trim() || 'Item'; else if (f === 'dur') { it.dur = Math.max(0, Math.round(parseFloat(v)) || 0); rTotalUpdate(); }
   else if (v === 'del') { if (RDELI !== i) { RDELI = i; render(); setTimeout(() => { if (RDELI === i) { RDELI = null; if (!typing()) render(); } }, 4000); } else rDel(i); return; }
   else { if (v.startsWith('buf:')) { it.type = 'buf'; it.kind = v.slice(4); } else { it.type = v; delete it.kind; } save(); render(); return; }
   save(); }
@@ -1041,14 +864,47 @@ function rMode(v) { rt().mode = v; save(); }
 function rNew() { const r = { id: 'r' + Date.now(), name: 'New routine', mode: 'required', items: [] }; ROUTINES.push(r); RID = r.id; render(); }
 function rRemove() { const r = rt(); if (r.id === 'sprint') return; if (RDEL !== r.id) { RDEL = r.id; render(); return; } ROUTINES = ROUTINES.filter(x => x.id !== r.id); RID = 'sprint'; RDEL = null; render(); }
 
+/* ---------- single-routine copy, export and import (v1.4.1) ---------- */
+const ROUTINE_EXP = 'PHONERUNNER_ROUTINE_V1:';
+let RMSG = '', RFB = '';
+function rMsgHTML() { return (RMSG ? `<div class="mut" style="margin-top:6px">${esc(RMSG)}</div>` : '') + (RFB ? `<textarea readonly style="width:100%;height:80px;margin-top:6px" onfocus="this.select()">${esc(RFB)}</textarea>` : ''); }
+function uniqueRoutineName(base) { let n = base, k = 2; while (ROUTINES.some(x => x.name === n)) n = base + ' (' + (k++) + ')'; return n; }
+function rDup() {
+  const r = rt(), c = clone(r); c.id = 'r' + Date.now(); c.name = uniqueRoutineName(r.name + ' (copy)'); c.items.forEach(i => { i.uid = newUid(); });
+  ROUTINES.push(c); RID = c.id; RDEL = null; RDELI = null; RFB = ''; RMSG = 'Copied as "' + c.name + '".'; render();
+}
+function rExport() {
+  const r = rt(), t = ROUTINE_EXP + JSON.stringify({ sv: SCHEMA, ver: APP_VERSION, routine: { name: r.name, mode: r.mode === 'open' ? 'open' : 'required',
+    items: r.items.map(i => i.type === 'buf' ? { type: 'buf', kind: i.kind === 'break' ? 'break' : 'task', name: i.name, dur: i.dur } : { type: i.type, name: i.name, dur: i.dur }) } });
+  const ok = () => { RFB = ''; RMSG = 'Copied "' + r.name + '" to the clipboard. Paste it into the import box on the start screen to add it.'; render(); };
+  const bad = () => { RFB = t; RMSG = 'Clipboard unavailable: select and copy the text below.'; render(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, bad); else bad();
+}
+function importRoutine(v) {
+  const m = $('backupMsg'); let d;
+  try { d = JSON.parse(v.slice(ROUTINE_EXP.length)); } catch (e) { m.textContent = 'Could not read that routine export.'; return; }
+  if (d && (d.sv || 1) > SCHEMA) { m.textContent = 'That export is from a newer version (' + (d.ver || '?') + ') and this one (v' + APP_VERSION + ') cannot read it safely.'; return; }
+  const s = d && d.routine;
+  if (!s || typeof s.name !== 'string' || !Array.isArray(s.items)) { m.textContent = 'The routine export is incomplete.'; return; }
+  const items = s.items.filter(i => i && ['est', 'min', 'buf'].includes(i.type)).map(i => {
+    const o = { type: i.type, name: String(i.name || 'Item'), dur: Math.max(0, Math.round(parseFloat(i.dur)) || 0), uid: newUid() };
+    if (i.type === 'buf') o.kind = i.kind === 'break' ? 'break' : 'task'; return o; });
+  const r = { id: 'r' + Date.now(), name: uniqueRoutineName(s.name.trim() || 'Routine'), mode: s.mode === 'open' ? 'open' : 'required', items };
+  ROUTINES.push(r); RID = r.id; impPending = false; endIsRec = true; lastEdit = 'len'; $('impBox').value = ''; setMode(r.mode);
+  m.textContent = 'Imported routine "' + r.name + '"' + (items.length < s.items.length ? ' (' + (s.items.length - items.length) + ' invalid item(s) skipped)' : '') + '.';
+  render();
+}
+
 /* ---------- backup ---------- */
 const EXP = 'PHONERUNNER_EXPORT_V1:';
-function exportAll() { const t = EXP + JSON.stringify({ routines: ROUTINES, tasks: TASKS, habits: HABITS, day: DAY }), fb = $('expFb'), m = $('backupMsg');
+function exportAll() { const t = EXP + JSON.stringify({ sv: SCHEMA, ver: APP_VERSION, routines: ROUTINES, tasks: TASKS, habits: HABITS, day: DAY }), fb = $('expFb'), m = $('backupMsg');
   const show = () => { fb.value = t; fb.style.display = 'block'; fb.select(); m.textContent = 'Clipboard unavailable: select and copy the text below.'; };
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(() => { fb.style.display = 'none'; m.textContent = 'Copied export to clipboard.'; }, show); else show(); }
 function importAll() { const v = $('impBox').value.trim(), m = $('backupMsg'); let d;
+  if (v.startsWith(ROUTINE_EXP)) { importRoutine(v); return; }
   if (!v.startsWith(EXP)) { m.textContent = 'That is not an export.'; return; }
   try { d = JSON.parse(v.slice(EXP.length)); } catch (e) { m.textContent = 'Could not read that export.'; return; }
+  if (d && (d.sv || 1) > SCHEMA) { m.textContent = 'That export is from a newer version (' + (d.ver || '?') + ') and this one (v' + APP_VERSION + ') cannot read it safely.'; return; }
   if (!d || !Array.isArray(d.routines) || !Array.isArray(d.tasks) || !Array.isArray(d.habits)) { m.textContent = 'The export is incomplete.'; return; }
   if (!impPending) { impPending = true; m.textContent = 'This replaces all routines, tasks and habits. Tap Import again to confirm.'; return; }
   impPending = false; ROUTINES = d.routines.some(r => r.id === 'sprint') ? d.routines : [defaultRoutines()[0], ...d.routines];
@@ -1056,10 +912,68 @@ function importAll() { const v = $('impBox').value.trim(), m = $('backupMsg'); l
   $('impBox').value = ''; m.textContent = 'Imported.'; render(); }
 
 /* ---------- saved data (survives reload and browser close) ---------- */
-function save() { try { localStorage.setItem('pr_v1', JSON.stringify({ state, T0, base, BP, skip: [...SKIP], mom: RUNMOM, tasks: TASKS, habits: HABITS, day: DAY, ts: taskSeq, hs: habitSeq, routines: ROUTINES, rid: RID, muted: MUTED })); } catch (e) {} }
-function restore() { const d = JSON.parse(localStorage.getItem('pr_v1') || 'null'); if (!d) return;
+function save() { if (LOCK) return; try {
+    const str = JSON.stringify({ sv: SCHEMA, ver: APP_VERSION, state, T0, base, BP, skip: [...SKIP], mom: RUNMOM, tasks: TASKS, habits: HABITS, day: DAY, ts: taskSeq, hs: habitSeq, routines: ROUTINES, rid: RID, muted: MUTED });
+    if (str === lastSaved) return; localStorage.setItem('pr_v1', str); lastSaved = str; } catch (e) {} }
+function restore() { const raw = localStorage.getItem('pr_v1'); const d = JSON.parse(raw || 'null'); if (!d) return;
+  const sv = d.sv || 1;
+  if (sv > SCHEMA) { LOCK = { kind: 'newer', ver: d.ver || '?' }; return; } // written by a newer version: read nothing, change nothing
+  if (sv < SCHEMA) CONVERTED_NOTE = 'Your saved data was converted from an older format. Copy an export from the start screen if you want a backup.';
   state = d.state || null; T0 = d.T0 || 0; base = d.base || 0; BP = d.BP || null; SKIP = new Set(d.skip || []); RUNMOM = d.mom || 0; TASKS = d.tasks || []; HABITS = d.habits || [];
   DAY = d.day || 1; taskSeq = d.ts || 0; habitSeq = d.hs || 0; if (d.routines && d.routines.length) ROUTINES = d.routines; RID = d.rid || 'sprint'; MUTED = !!d.muted; }
+
+/* ---------- other tabs and versions ---------- */
+function bannerHTML() {
+  let h = '';
+  if (LOCK && LOCK.kind === 'newer') h += `<div><b>Saved data is from a newer version (${esc(LOCK.ver)}).</b> This is v${APP_VERSION}; it can't read that data safely, so it is not loading or saving anything. Reload to get the newer page.<br><button class="pri" onclick="location.reload()">Reload</button></div>`;
+  else if (LOCK) h += `<div><b>Saved data was changed in another tab or version${LOCK.ver ? ' (' + esc(LOCK.ver) + ')' : ''}.</b> This tab has stopped saving so it doesn't overwrite that. If a routine is running here it keeps running, but its progress is not saved.<br><button class="pri" onclick="location.reload()">Reload to use the saved data</button><button onclick="keepThisTab()">Keep this tab's data</button></div>`;
+  if (ALIVE_NOTE) h += `<div style="margin-top:8px"><b>A routine seems to be running in another tab.</b> Using both at once can overwrite each other's progress. Close one of them.<br><button onclick="ALIVE_NOTE=false;render()">Dismiss</button></div>`;
+  if (CONVERTED_NOTE) h += `<div style="margin-top:8px">${esc(CONVERTED_NOTE)}<br><button onclick="CONVERTED_NOTE='';render()">Dismiss</button></div>`;
+  return h;
+}
+function keepThisTab() { LOCK = null; lastSaved = ''; render(); }
+window.addEventListener('storage', e => {
+  if (e.key === 'pr_v1') {
+    if (e.newValue === lastSaved) return;
+    let nv = null; try { nv = JSON.parse(e.newValue || 'null'); } catch (x) {}
+    if (LOCK && LOCK.kind === 'newer') return;
+    LOCK = (nv && (nv.sv || 1) > SCHEMA) ? { kind: 'newer', ver: nv.ver || '?' } : { kind: 'other', ver: nv && nv.ver ? 'v' + nv.ver : '' };
+    render();
+  } else if (e.key === 'pr_v1_alive' && e.newValue && state && !state.finished) {
+    try { if (JSON.parse(e.newValue).id !== TAB_ID) { ALIVE_NOTE = true; render(); } } catch (x) {}
+  }
+});
+// A running tab writes a heartbeat so a second tab or a newer page can notice it. (Pages older than v1.2.3 do not.)
+function beat() { try {
+  if (state && !state.finished && !LOCK) localStorage.setItem('pr_v1_alive', JSON.stringify({ id: TAB_ID, ver: APP_VERSION, at: Date.now() }));
+  else { const a = JSON.parse(localStorage.getItem('pr_v1_alive') || 'null'); if (a && a.id === TAB_ID) localStorage.removeItem('pr_v1_alive'); } } catch (e) {} }
+try { const a = JSON.parse(localStorage.getItem('pr_v1_alive') || 'null'); if (a && a.id !== TAB_ID && Date.now() - a.at < 6000) ALIVE_NOTE = true; } catch (e) {}
+setInterval(beat, 2000);
+window.addEventListener('pagehide', () => { try { const a = JSON.parse(localStorage.getItem('pr_v1_alive') || 'null'); if (a && a.id === TAB_ID) localStorage.removeItem('pr_v1_alive'); } catch (e) {} });
+
+/* ---------- info page ---------- */
+function infoView() {
+  return `<div class="card info"><h2>How to use</h2>
+<h3>Run a routine</h3><ul>
+<li>On the Run tab choose a routine, then either a required end time (blocks shrink to fit) or open-ended (the end moves later if you run long). Tap Start run.</li>
+<li>Tap Done when an item is finished, or Push forward to skip it once for this run only. A chime sounds when an item's time is up, and once more 30 seconds later.</li>
+<li>Estimate and Minimum items are fixed-length (a Minimum chimes once when its time is reached). Task buffers fill spare time with tasks and habits; break buffers are for rests. Buffers shrink first when you run late and grow when you are ahead.</li>
+<li>When a run finishes, estimate items and habits you finished with Done in a task buffer offer Keep, Update or Split for their length, based on the time they took (time from pushed-forward blocks counts). Update and Split change the saved routine or habit.</li></ul>
+<h3>Edit routines</h3><ul>
+<li>The Edit routine tab changes the saved routines. During a run it edits only the items that have not started yet.</li>
+<li>Use the arrows to reorder. Tap the coloured icon to change an item's type or delete it.</li>
+<li>During a run, tick the box on an Estimate or Minimum item to check it off without timing it. It drops out of the plan, and the time it frees goes to the buffers (or moves an open-ended run's suggested end earlier). Ticking the current item is the same as Done. Un-tick to bring it back: to its original place, or, if that place has already passed, right after the current item. Checked-off items do not appear in the after-run length updates.</li>
+<li>Copy routine duplicates the one you are editing. Export routine copies it to the clipboard; paste it into the import box on the start screen to add it as a new routine (it never replaces anything).</li></ul>
+<h3>Tasks and habits</h3><ul>
+<li>Add tasks by name; you will be asked for a length, urgency and importance. Habits come back on their own schedule (X times in Y days, at least Z days apart). New day advances the day counter.</li></ul>
+<h3>Your data</h3><ul>
+<li>Everything is stored only in this browser on this device. It is not sent anywhere or synced. Clearing site data, or using another browser or device, starts you from empty.</li>
+<li>Back up often: on the start screen (no run in progress) use Copy export, and Import to restore.</li></ul>
+<h3>Versions</h3><ul>
+<li>This is v${APP_VERSION}. The hosted page can change at any time, and there is no guarantee a future version will work with older saves or exports, though I will try.</li>
+<li>Avoid having the app open in two tabs at once. If a tab notices the saved data was changed elsewhere it stops saving and says so.</li></ul>
+<button onclick="go('edit')" style="width:100%">Back to Edit routine</button></div>`;
+}
 
 /* ---------- alerts: scheduled on the audio clock, so they sound with the page in the background ---------- */
 function chimeAtT(out, t, n) { const o = (f, tt, dur, vol) => { const c = actx.createOscillator(), g = actx.createGain(); c.type = 'sine'; c.frequency.value = f;
@@ -1089,13 +1003,14 @@ async function syncWake() {
 }
 
 function render() {
-  syncNow(); const setupOn = !state && tab === 'run';
+  ensureUids(); syncNow(); const setupOn = !state && tab === 'run';
   $('setup').style.display = setupOn ? 'block' : 'none'; $('nav').style.display = 'grid';
   $('tRun').className = tab === 'run' ? 'on' : ''; $('tEdit').className = tab === 'edit' ? 'on' : ''; $('tTasks').className = tab === 'tasks' ? 'on' : '';
   if (setupOn) populateSetup();
   let html = '';
-  if (state) { ensureBP(); const lay = E.layout(state, now); PLANS = bufferPlans(lay); armAlerts(lay); html = tab === 'run' ? runView(lay) : tab === 'edit' ? editView(lay) : tasksView(); }
-  else html = tab === 'tasks' ? tasksView() : tab === 'edit' ? routineEditor() : '';
+  if (state) { ensureBP(); const lay = E.layout(state, now); PLANS = bufferPlans(lay); armAlerts(lay); html = tab === 'info' ? infoView() : tab === 'run' ? runView(lay) : tab === 'edit' ? editView(lay) : tasksView(); }
+  else html = tab === 'info' ? infoView() : tab === 'tasks' ? tasksView() : tab === 'edit' ? routineEditor() : '';
+  $('banner').innerHTML = bannerHTML();
   $('app').innerHTML = (flashMsg ? `<div class="card late">${esc(flashMsg)}</div>` : '') + html; flashMsg = '';
   if (DETAIL && $('detail')) $('detail').textContent = DETAIL;
   save(); syncWake();
@@ -1103,6 +1018,11 @@ function render() {
 $('tRun').onclick = () => go('run'); $('tEdit').onclick = () => go('edit'); $('tTasks').onclick = () => go('tasks');
 try { restore(); } catch (e) {}
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+// Select-on-focus: duration boxes select their number; a name box still holding the "New item" placeholder selects it.
+document.addEventListener('focusin', e => { const el = e.target;
+  if (!el || el.tagName !== 'INPUT') return;
+  const hit = el.classList.contains('rd') || (el.classList.contains('rn') && el.value === 'New item');
+  if (hit) setTimeout(() => { try { el.select(); } catch (x) {} }, 0); });
 document.addEventListener('pointerdown', () => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state !== 'running') actx.resume(); } catch (e) {} }, { passive: true });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') { syncWake(); if (state) render(); } });
 const typing = () => { const a = document.activeElement; return !!a && $('app').contains(a) && /^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName); };
