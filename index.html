@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<title>Phone runner v1.5.2</title>
+<title>Phone runner v1.5.3</title>
 <style>
 :root{--bg:#141517;--panel:#1d1f22;--line:#313438;--txt:#e9eee6;--mut:#9ea6a0;--accent:#7fcf55;--prog:#f2a65a;--on:#0c1a06;--min:#3fb0a0;--est:#5a8fd0;--task:#7cc05a;--brk:#b58ad6;--warn:#e48a6a;--btn:#2a2d30;color-scheme:dark}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -82,7 +82,6 @@ nav button.on{color:var(--accent);font-weight:700;box-shadow:inset 0 3px 0 var(-
   <div id="reqBox">
     <label>Length <input type="number" id="lenH" min="0"> hr <input type="number" id="lenM" min="0"> min</label><br>
     <label>Ends at <input type="time" id="endT"></label> <button type="button" class="tg" id="recBtn">Recommended</button> <button type="button" class="tg" id="asapBtn" style="display:none">ASAP</button>
-    <div class="mut" id="asapNote" style="display:none"></div>
   </div>
   <div id="openBox" class="mut"></div>
   <button class="pri" type="button" id="startBtn" style="margin-top:8px">Start run</button>
@@ -410,7 +409,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
    copy cannot safely read or write (renamed or removed fields). Adding optional fields keeps the same SCHEMA.
    Saving is switched off (LOCK) in a tab when the saved data was written by another tab or by a newer
    SCHEMA, so a stale tab never overwrites newer data. */
-const APP_VERSION = '1.5.2', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
+const APP_VERSION = '1.5.3', SCHEMA = 1, TAB_ID = Math.random().toString(36).slice(2, 10);
 let LOCK = null, lastSaved = '', ALIVE_NOTE = false, CONVERTED_NOTE = '';
 const pad = n => String(n).padStart(2, '0');
 const fmTotal = m => { const r = Math.round(m); return r < 60 ? r + ' min' : Math.floor(r / 60) + ' h ' + (r % 60) + ' min'; };
@@ -464,8 +463,6 @@ function syncSetup() {
   $('recBtn').className = 'tg' + (endIsRec ? ' on' : '');
   $('asapBtn').style.display = asap > 0 ? '' : 'none';
   $('asapBtn').className = 'tg' + (endIsAsap ? ' on' : '');
-  const an = $('asapNote'); an.style.display = asap > 0 ? 'block' : 'none';
-  an.textContent = `ASAP is ${fm(asap)} min, the shortest this routine can run: no buffers and every item squeezed to ${Math.round(E.constants.FLOOR_FRACTION * 100)}%. It leaves no slack.`;
 }
 function setMode(m) { mode = m; $('mReq').className = m === 'required' ? 'on' : ''; $('mOpen').className = m === 'open' ? 'on' : '';
   $('reqBox').style.display = m === 'required' ? 'block' : 'none'; $('openBox').style.display = m === 'open' ? 'block' : 'none'; syncSetup(); }
